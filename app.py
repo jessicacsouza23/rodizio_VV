@@ -159,7 +159,7 @@ def main():
         else:
             st.session_state['area_ativa'] = None
 
-        aba = st.sidebar.radio("Navegação", ["Dashboard", "Gerar Rodízio", "Cadastrar Pessoas", "Afastamentos", "Configurações"])
+        aba = st.sidebar.radio("Navegação", ["Dashboard", "Gerar Rodízio", "Cadastrar Pessoas", "Afastamentos", "Cargos"])
         if st.sidebar.button("Sair"): st.session_state.clear(); st.rerun()
 
         if aba == "Dashboard" and st.session_state['area_ativa']:
@@ -257,10 +257,10 @@ def main():
                             curr += timedelta(days=1)
                         st.success("Afastamento registrado!")
 
-        elif aba == "Configurações":
-            st.header("⚙️ Áreas")
+        elif aba == "Cargos":
+            st.header("⚙️ Cargos")
             with st.form("nova_a"):
-                n = st.text_input("Nome"); v = st.number_input("Posiçõe", 1, 10, 2); c = st.text_input("Posição")
+                n = st.text_input("Nome"); v = st.number_input("Quantidades de Posições", 1, 10, 2); c = st.text_input("Posições")
                 if st.form_submit_button("Criar"):
                     supabase.table("areas").insert({"id_usuario": st.session_state['user_id'], "nome_area": n, "vagas": v, "posicoes": c}).execute()
                     st.rerun()
@@ -274,4 +274,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
