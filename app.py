@@ -67,7 +67,7 @@ def membro_disponivel(id_membro, nome_membro, data_alvo):
         if r['tipo'] == 'data_especifica' and data_str == r['valor']: return False
     return True
 
-# --- MOTOR DE ESCALA ---
+# --- MOTOR DE ESCALA (CORRIGIDO) ---
 def gerar_escala_logica(area, data_inicio, meses, dias_culto):
     vagas = int(area['vagas'])
     pos_list = [p.strip() for p in area['posicoes'].split(",")]
@@ -80,22 +80,25 @@ def gerar_escala_logica(area, data_inicio, meses, dias_culto):
         if dia_s in dias_culto:
             vinc = supabase.table("vinculos").select("id_membro").eq("id_area", area['id']).execute()
             ids = [v['id_membro'] for v in vinc.data]
-            # Ordenação interna pela data de serviço invisível
-            membros = supabase.table("membros").select("*").in_("id", ids).order("ultimo_servico", descending=False).order("id", descending=False).execute()
             
-            linha = {"Data": data_atual.strftime('%d/%m/%Y'), "Dia": DIAS_TRADUCAO[dia_s], "_mes": data_atual.strftime('%B / %Y')}
-            v_p = 0
-            for p in membros.data:
-                if v_p == vagas: break
-                if membro_disponivel(p['id'], p['nome'], data_atual):
-                    pos = pos_list[v_p] if v_p < len(pos_list) else f"Vaga {v_p+1}"
-                    linha[pos] = p['nome']
-                    supabase.table("membros").update({"ultimo_servico": data_atual.strftime('%Y-%m-%d')}).eq("id", p['id']).execute()
-                    v_p += 1
-            escala_data.append(linha)
+            if ids:
+                # CORREÇÃO AQUI: Removido 'descending=False' que causava o erro
+                # O padrão do .order() já é ascendente (do mais antigo para o mais novo)
+                membros = supabase.table("membros").select("*").in_("id", ids).order("ultimo_servico").order("id").execute()
+                
+                linha = {"Data": data_atual.strftime('%d/%m/%Y'), "Dia": DIAS_TRADUCAO[dia_s], "_mes": data_atual.strftime('%B / %Y')}
+                v_p = 0
+                for p in membros.data:
+                    if v_p == vagas: break
+                    if membro_disponivel(p['id'], p['nome'], data_atual):
+                        pos = pos_list[v_p] if v_p < len(pos_list) else f"Vaga {v_p+1}"
+                        linha[pos] = p['nome']
+                        supabase.table("membros").update({"ultimo_servico": data_atual.strftime('%Y-%m-%d')}).eq("id", p['id']).execute()
+                        v_p += 1
+                escala_data.append(linha)
         data_atual += timedelta(days=1)
     return pd.DataFrame(escala_data)
-
+    
 # --- INTERFACE ---
 def main():
     st.set_page_config(page_title="CCB Escala Pro", layout="wide")
@@ -241,3 +244,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
