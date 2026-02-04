@@ -99,7 +99,7 @@ def membro_disponivel(id_membro, nome_membro, data_alvo):
 
 # --- MOTOR DE ESCALA (CORRIGIDO) ---
 def gerar_escala_logica(area, data_inicio, meses, dias_culto):
-    vagas = int(area['vagas'])
+    Posicoes = int(area['Posicoes'])
     pos_list = [p.strip() for p in area['posicoes'].split(",")]
     escala_data = []
     data_atual = data_inicio
@@ -119,7 +119,7 @@ def gerar_escala_logica(area, data_inicio, meses, dias_culto):
                 linha = {"Data": data_atual.strftime('%d/%m/%Y'), "Dia": DIAS_TRADUCAO[dia_s], "_mes": data_atual.strftime('%B / %Y')}
                 v_p = 0
                 for p in membros.data:
-                    if v_p == vagas: break
+                    if v_p == Posicoes: break
                     if membro_disponivel(p['id'], p['nome'], data_atual):
                         pos = pos_list[v_p] if v_p < len(pos_list) else f"Vaga {v_p+1}"
                         linha[pos] = p['nome']
@@ -260,19 +260,20 @@ def main():
         elif aba == "Configurações":
             st.header("⚙️ Áreas")
             with st.form("nova_a"):
-                n = st.text_input("Nome"); v = st.number_input("Vagas", 1, 10, 2); c = st.text_input("Cargos")
+                n = st.text_input("Nome"); v = st.number_input("Posicoes", 1, 10, 2); c = st.text_input("Cargos")
                 if st.form_submit_button("Criar"):
-                    supabase.table("areas").insert({"id_usuario": st.session_state['user_id'], "nome_area": n, "vagas": v, "posicoes": c}).execute()
+                    supabase.table("areas").insert({"id_usuario": st.session_state['user_id'], "nome_area": n, "Posicoes": v, "posicoes": c}).execute()
                     st.rerun()
             if areas_res.data:
                 for a in areas_res.data:
                     with st.container(border=True):
                         col1, col2 = st.columns([4, 1])
-                        col1.write(f"📂 **{a['nome_area']}** ({a['vagas']} vagas)")
+                        col1.write(f"📂 **{a['nome_area']}** ({a['Posicoes']} Posicoes)")
                         if col2.button("🗑️", key=f"del_area_{a['id']}"):
                             supabase.table("areas").delete().eq("id", a['id']).execute(); st.rerun()
 
 if __name__ == "__main__":
     main()
+
 
 
