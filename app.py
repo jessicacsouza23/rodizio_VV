@@ -131,7 +131,7 @@ def gerar_escala_logica(area, data_inicio, meses, dias_culto):
     
 # --- INTERFACE ---
 def main():
-    st.set_page_config(page_title="CCB Escala Pro", layout="wide")
+    st.set_page_config(page_title="CCB Escala", layout="wide")
     
     if 'logged_in' not in st.session_state:
         st.title("⛪ Sistema de Escala CCB")
@@ -274,5 +274,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
