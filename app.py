@@ -121,7 +121,7 @@ def gerar_escala_logica(area, data_inicio, meses, dias_culto):
                 for p in membros.data:
                     if v_p == vagas: break
                     if membro_disponivel(p['id'], p['nome'], data_atual):
-                        pos = pos_list[v_p] if v_p < len(pos_list) else f"Vaga {v_p+1}"
+                        pos = pos_list[v_p] if v_p < len(pos_list) else f"Posição {v_p+1}"
                         linha[pos] = p['nome']
                         supabase.table("membros").update({"ultimo_servico": data_atual.strftime('%Y-%m-%d')}).eq("id", p['id']).execute()
                         v_p += 1
@@ -154,12 +154,12 @@ def main():
         areas_res = supabase.table("areas").select("*").eq("id_usuario", st.session_state['user_id']).execute()
         
         if areas_res.data:
-            sel_nome = st.sidebar.selectbox("Área Atual", [a['nome_area'] for a in areas_res.data])
+            sel_nome = st.sidebar.selectbox("Cargo Atual", [a['nome_area'] for a in areas_res.data])
             st.session_state['area_ativa'] = next(a for a in areas_res.data if a['nome_area'] == sel_nome)
         else:
             st.session_state['area_ativa'] = None
 
-        aba = st.sidebar.radio("Navegação", ["Dashboard", "Gerar Rodízio", "Cadastrar Pessoas", "Afastamentos", "Configurações"])
+        aba = st.sidebar.radio("Navegação", ["Dashboard", "Gerar Rodízio", "Cadastrar Pessoas", "Afastamentos", "Cargo"])
         if st.sidebar.button("Sair"): st.session_state.clear(); st.rerun()
 
         if aba == "Dashboard" and st.session_state['area_ativa']:
@@ -194,7 +194,7 @@ def main():
                                 dias_at = [r['valor'] for r in rest_res.data if r['tipo'] == 'dia']
                                 sab_at = any(r['valor'] == '3_sabado' for r in rest_res.data)
                                 nv_nome = st.text_input("Nome", m['nome'])
-                                nv_ind = st.multiselect("Dias Proibidos", DIAS_ORDEM, default=dias_at, format_func=lambda x: DIAS_TRADUCAO[x])
+                                nv_ind = st.multiselect("Dias que não pode comparecer", DIAS_ORDEM, default=dias_at, format_func=lambda x: DIAS_TRADUCAO[x])
                                 nv_sab = st.checkbox("Restrição 3º Sábado", value=sab_at)
                                 if st.form_submit_button("Salvar"):
                                     supabase.table("membros").update({"nome": nv_nome}).eq("id", m['id']).execute()
@@ -260,9 +260,9 @@ def main():
         elif aba == "Configurações":
             st.header("⚙️ Áreas")
             with st.form("nova_a"):
-                n = st.text_input("Nome"); v = st.number_input("Vagas", 1, 10, 2); c = st.text_input("Cargos")
+                n = st.text_input("Nome"); v = st.number_input("Posições", 1, 10, 2); c = st.text_input("Cargos")
                 if st.form_submit_button("Criar"):
-                    supabase.table("areas").insert({"id_usuario": st.session_state['user_id'], "nome_area": n, "vagas": v, "posicoes": c}).execute()
+                    supabase.table("areas").insert({"id_usuario": st.session_state['user_id'], "nome_cargo": n, "posição": v, "posicoes": c}).execute()
                     st.rerun()
             if areas_res.data:
                 for a in areas_res.data:
@@ -274,6 +274,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
