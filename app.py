@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import streamlit as st
 import pandas as pd
 import hashlib
@@ -19,44 +20,64 @@ DATA_RESET_INTERNA = "2000-01-01"
 def hash_senha(senha):
     return hashlib.sha256(str.encode(senha)).hexdigest()
 
-# --- FUNÇÃO DE GERAÇÃO DE IMAGEM ---
+# --- FUNÇÃO DE GERAÇÃO DE IMAGEM (CORRIGIDA) ---
 def gerar_imagem_escala(df):
     if df.empty: return None
+    
+    # Garantir que os textos do DataFrame sejam strings limpas
+    df = df.astype(str)
+    
     meses_ref = df['_mes'].values
     df_v = df.drop(columns=['_mes'])
     colunas = df_v.columns.tolist()
+    
     larg_col = 220
     larg_total = 40 + (len(colunas) * larg_col)
     alt_total = (len(df) * 45) + 300
+    
     img = Image.new('RGB', (larg_total, alt_total), color=(255, 255, 255))
     draw = ImageDraw.Draw(img)
+    
+    # Tenta carregar uma fonte padrão do sistema que suporte acentos
     try:
-        f_h = ImageFont.truetype("arial.ttf", 18); f_t = ImageFont.truetype("arial.ttf", 16); f_m = ImageFont.truetype("arial.ttf", 20)
+        # No Streamlit Cloud (Linux), o caminho da fonte costuma ser este:
+        f_h = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 18)
+        f_t = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 16)
+        f_m = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 20)
     except:
+        # Fallback caso a fonte acima não exista
         f_h = f_t = f_m = ImageFont.load_default()
+        
     y, mes_at = 30, ""
     for i, row in df_v.iterrows():
         if meses_ref[i] != mes_at:
             mes_at = meses_ref[i]
             y += 20
             draw.rectangle([0, y, larg_total, y+40], fill=(230, 230, 230))
-            txt = f"MÊS DE {mes_at.upper()}"; w = draw.textlength(txt, font=f_m)
+            txt = f"MÊS DE {mes_at.upper()}"
+            w = draw.textlength(txt, font=f_m)
             draw.text(((larg_total-w)/2, y+8), txt, fill="black", font=f_m)
             y += 50
             draw.rectangle([0, y, larg_total, y+35], fill=(50, 50, 50))
             for idx, col in enumerate(colunas):
-                txt_c = col.upper(); w_c = draw.textlength(txt_c, font=f_h)
+                txt_c = col.upper()
+                w_c = draw.textlength(txt_c, font=f_h)
                 draw.text(((idx*larg_col)+(larg_col-w_c)/2, y+7), txt_c, fill="white", font=f_h)
             y += 45
-        if i % 2 == 0: draw.rectangle([0, y-5, larg_total, y+30], fill=(248, 248, 248))
+            
+        if i % 2 == 0: 
+            draw.rectangle([0, y-5, larg_total, y+30], fill=(248, 248, 248))
+            
         for idx, col in enumerate(colunas):
-            txt_v = str(row[col]); w_v = draw.textlength(txt_v, font=f_t)
+            txt_v = row[col] # Aqui o texto já vem com acento do banco
+            w_v = draw.textlength(txt_v, font=f_t)
             draw.text(((idx*larg_col)+(larg_col-w_v)/2, y), txt_v, fill="black", font=f_t)
         y += 40
+    
     buf = io.BytesIO()
     img.save(buf, format="PNG")
     return buf.getvalue()
-
+    
 # --- LÓGICA DE DISPONIBILIDADE ---
 def membro_disponivel(id_membro, nome_membro, data_alvo):
     data_str = data_alvo.strftime('%Y-%m-%d')
@@ -244,4 +265,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
