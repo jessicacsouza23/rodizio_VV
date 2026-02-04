@@ -7,6 +7,13 @@ from supabase import create_client, Client
 from PIL import Image, ImageDraw, ImageFont
 import io
 
+MESES_TRADUCAO = {
+    'January': 'Janeiro', 'February': 'Fevereiro', 'March': 'Março',
+    'April': 'Abril', 'May': 'Maio', 'June': 'Junho',
+    'July': 'Julho', 'August': 'Agosto', 'September': 'Setembro',
+    'October': 'Outubro', 'November': 'Novembro', 'December': 'Dezembro'
+}
+
 # --- CONEXÃO SUPABASE ---
 URL = "https://vjqkmomxlqwhthxkkfmp.supabase.co"
 KEY = "sb_publishable_3LhpzB7wNPY7WpgKWP_BqA_5eJ5Xik-"
@@ -24,40 +31,42 @@ def hash_senha(senha):
 def gerar_imagem_escala(df):
     if df.empty: return None
     
-    # Garantir que os textos do DataFrame sejam strings limpas
     df = df.astype(str)
-    
     meses_ref = df['_mes'].values
     df_v = df.drop(columns=['_mes'])
     colunas = df_v.columns.tolist()
     
     larg_col = 220
     larg_total = 40 + (len(colunas) * larg_col)
-    alt_total = (len(df) * 45) + 300
+    alt_total = (len(df) * 45) + 400
     
     img = Image.new('RGB', (larg_total, alt_total), color=(255, 255, 255))
     draw = ImageDraw.Draw(img)
     
-    # Tenta carregar uma fonte padrão do sistema que suporte acentos
     try:
-        # No Streamlit Cloud (Linux), o caminho da fonte costuma ser este:
+        # Caminhos comuns para fontes no Linux (Streamlit Cloud)
         f_h = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 18)
         f_t = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 16)
-        f_m = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 20)
+        f_m = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 22)
     except:
-        # Fallback caso a fonte acima não exista
         f_h = f_t = f_m = ImageFont.load_default()
         
     y, mes_at = 30, ""
     for i, row in df_v.iterrows():
+        # Lógica de Tradução do Mês na Imagem
+        mes_ingles = meses_ref[i].split(" / ")[0]
+        ano = meses_ref[i].split(" / ")[1]
+        mes_pt = MESES_TRADUCAO.get(mes_ingles, mes_ingles)
+        texto_mes_completo = f"{mes_pt} / {ano}"
+
         if meses_ref[i] != mes_at:
             mes_at = meses_ref[i]
             y += 20
-            draw.rectangle([0, y, larg_total, y+40], fill=(230, 230, 230))
-            txt = f"MÊS DE {mes_at.upper()}"
+            draw.rectangle([0, y, larg_total, y+45], fill=(230, 230, 230))
+            txt = f"MÊS DE {texto_mes_completo.upper()}"
             w = draw.textlength(txt, font=f_m)
-            draw.text(((larg_total-w)/2, y+8), txt, fill="black", font=f_m)
-            y += 50
+            draw.text(((larg_total-w)/2, y+10), txt, fill="black", font=f_m)
+            y += 60
             draw.rectangle([0, y, larg_total, y+35], fill=(50, 50, 50))
             for idx, col in enumerate(colunas):
                 txt_c = col.upper()
@@ -69,7 +78,7 @@ def gerar_imagem_escala(df):
             draw.rectangle([0, y-5, larg_total, y+30], fill=(248, 248, 248))
             
         for idx, col in enumerate(colunas):
-            txt_v = row[col] # Aqui o texto já vem com acento do banco
+            txt_v = row[col]
             w_v = draw.textlength(txt_v, font=f_t)
             draw.text(((idx*larg_col)+(larg_col-w_v)/2, y), txt_v, fill="black", font=f_t)
         y += 40
@@ -265,5 +274,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
