@@ -251,30 +251,50 @@ def main():
                 st.download_button(label="📸 Baixar Foto", data=img_data, file_name=f"Escala.png", mime="image/png")
 
         elif aba == "Histórico":
-            if st.session_state.get('area_ativa'):
+            # SEGURANÇA: Verifica se a área está definida antes de tentar acessar o ID
+            if st.session_state.get('area_ativa') and 'id' in st.session_state['area_ativa']:
                 area = st.session_state['area_ativa']
                 st.header(f"📜 Histórico: {area['nome_area']}")
+                
+                # Busca escalas com segurança
                 escalas_salvas = supabase.table("escalas").select("*").eq("id_area", area['id']).order("data_geracao", descending=True).execute()
+                
                 if escalas_salvas.data:
                     for esc in escalas_salvas.data:
                         with st.container(border=True):
                             c1, c2, c3 = st.columns([3, 2, 1])
+                            
+                            # Tratamento seguro da data
                             try:
-                                data_formatada = datetime.fromisoformat(esc['data_geracao']).strftime('%d/%m/%Y %H:%M')
+                                data_geracao = datetime.fromisoformat(esc['data_geracao'])
+                                data_formatada = data_geracao.strftime('%d/%m/%Y %H:%M')
                             except:
                                 data_formatada = "Data inválida"
+                                
                             c1.write(f"📅 Gerado em: **{data_formatada}**")
-                            if c2.button("Visualizar", key=f"view_{esc['id']}"): st.session_state['view_escala'] = esc['id']
+                            
+                            if c2.button("Visualizar", key=f"view_{esc['id']}"):
+                                st.session_state['view_escala'] = esc['id']
+                            
                             if c3.button("🗑️", key=f"del_{esc['id']}"):
                                 supabase.table("escalas").delete().eq("id", esc['id']).execute()
                                 st.rerun()
+
+                            # Exibir escala selecionada
                             if st.session_state.get('view_escala') == esc['id']:
-                                df = pd.read_json(esc['dados_escala'])
-                                st.dataframe(df, use_container_width=True)
+                                try:
+                                    df = pd.read_json(esc['dados_escala'])
+                                    st.dataframe(df, use_container_width=True)
+                                except:
+                                    st.error("Erro ao carregar os dados da escala.")
+                                    
                                 if st.button("Fechar", key=f"close_{esc['id']}"):
-                                    del st.session_state['view_escala']; st.rerun()
-                else: st.info("Nenhuma escala salva.")
-            else: st.warning("Selecione uma área.")
+                                    del st.session_state['view_escala']
+                                    st.rerun()
+                else:
+                    st.info("Nenhuma escala salva ainda.")
+            else:
+                st.warning("⚠️ Selecione uma área na barra lateral primeiro.")
 
         elif aba == "Cadastrar Pessoas" and st.session_state['area_ativa']:
             area = st.session_state['area_ativa']
@@ -332,3 +352,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
