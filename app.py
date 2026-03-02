@@ -94,7 +94,7 @@ def gerar_escala_logica(area, data_inicio, meses, dias_culto):
     data_atual = data_inicio
     data_fim = data_inicio + timedelta(days=30 * meses)
 
-    # Buscar todos os membros da área uma vez só
+    # Buscar todos os membros da área
     vinc = supabase.table("vinculos").select("id_membro").eq("id_area", area['id']).execute()
     ids = [v['id_membro'] for v in vinc.data]
     
@@ -106,7 +106,10 @@ def gerar_escala_logica(area, data_inicio, meses, dias_culto):
     
     # Inicializar contagem de serviços se necessário
     for m in membros_base:
-        if 'total_servicos' not in m: m['total_servicos'] = 0
+        if 'total_servicos' not in m or m['total_servicos'] is None: 
+            m['total_servicos'] = 0
+            # Atualiza no banco para evitar erros futuros
+            supabase.table("membros").update({"total_servicos": 0}).eq("id", m['id']).execute()
 
     while data_atual <= data_fim:
         dia_s = data_atual.strftime('%A')
@@ -121,22 +124,21 @@ def gerar_escala_logica(area, data_inicio, meses, dias_culto):
             
             for i in range(vagas):
                 nome_posicao = pos_list[i] if i < len(pos_list) else f"Vaga {i+1}"
-                encontrou = False
                 
                 # Tenta achar alguém disponível para a posição
                 for p in membros_da_rodada:
                     if membro_disponivel(p['id'], data_atual, nome_posicao):
                         linha[nome_posicao] = p['nome']
                         
-                        # Atualiza contagem no banco
-                        novo_total = p['total_servicos'] + 1
-                        supabase.table("membros").update({"total_servicos": novo_total, "ultimo_servico": data_atual.strftime('%Y-%m-%d')}).eq("id", p['id']).execute()
+                        # Atualiza contagem local e banco
+                        p['total_servicos'] += 1
+                        supabase.table("membros").update({
+                            "total_servicos": p['total_servicos'], 
+                            "ultimo_servico": data_atual.strftime('%Y-%m-%d')
+                        }).eq("id", p['id']).execute()
                         
-                        # Atualiza na lista local para a próxima vaga do mesmo dia
-                        p['total_servicos'] = novo_total
                         membros_da_rodada.remove(p)
                         preenchidos += 1
-                        encontrou = True
                         break
             
             if preenchidos > 0: escala_data.append(linha)
@@ -248,28 +250,31 @@ def main():
                 img_data = gerar_imagem_escala(df)
                 st.download_button(label="📸 Baixar Foto", data=img_data, file_name=f"Escala.png", mime="image/png")
 
-        elif aba == "Histórico" and st.session_state['area_ativa']:
-            area = st.session_state['area_ativa']
-            st.header(f"📜 Histórico: {area['nome_area']}")
-            
-            escalas_salvas = supabase.table("escalas").select("*").eq("id_area", area['id']).order("data_geracao", descending=True).execute()
-            
-            if escalas_salvas.data:
-                for esc in escalas_salvas.data:
-                    with st.container(border=True):
-                        c1, c2, c3 = st.columns([3, 2, 1])
-                        data_formatada = datetime.fromisoformat(esc['data_geracao']).strftime('%d/%m/%Y %H:%M')
-                        c1.write(f"📅 Gerado em: **{data_formatada}**")
-                        if c2.button("Visualizar", key=f"view_{esc['id']}"): st.session_state['view_escala'] = esc['id']
-                        if c3.button("🗑️", key=f"del_{esc['id']}"):
-                            supabase.table("escalas").delete().eq("id", esc['id']).execute()
-                            st.rerun()
-                        if st.session_state.get('view_escala') == esc['id']:
-                            df = pd.read_json(esc['dados_escala'])
-                            st.dataframe(df, use_container_width=True)
-                            if st.button("Fechar", key=f"close_{esc['id']}"):
-                                del st.session_state['view_escala']; st.rerun()
-            else: st.info("Nenhuma escala salva.")
+        elif aba == "Histórico":
+            if st.session_state.get('area_ativa'):
+                area = st.session_state['area_ativa']
+                st.header(f"📜 Histórico: {area['nome_area']}")
+                escalas_salvas = supabase.table("escalas").select("*").eq("id_area", area['id']).order("data_geracao", descending=True).execute()
+                if escalas_salvas.data:
+                    for esc in escalas_salvas.data:
+                        with st.container(border=True):
+                            c1, c2, c3 = st.columns([3, 2, 1])
+                            try:
+                                data_formatada = datetime.fromisoformat(esc['data_geracao']).strftime('%d/%m/%Y %H:%M')
+                            except:
+                                data_formatada = "Data inválida"
+                            c1.write(f"📅 Gerado em: **{data_formatada}**")
+                            if c2.button("Visualizar", key=f"view_{esc['id']}"): st.session_state['view_escala'] = esc['id']
+                            if c3.button("🗑️", key=f"del_{esc['id']}"):
+                                supabase.table("escalas").delete().eq("id", esc['id']).execute()
+                                st.rerun()
+                            if st.session_state.get('view_escala') == esc['id']:
+                                df = pd.read_json(esc['dados_escala'])
+                                st.dataframe(df, use_container_width=True)
+                                if st.button("Fechar", key=f"close_{esc['id']}"):
+                                    del st.session_state['view_escala']; st.rerun()
+                else: st.info("Nenhuma escala salva.")
+            else: st.warning("Selecione uma área.")
 
         elif aba == "Cadastrar Pessoas" and st.session_state['area_ativa']:
             area = st.session_state['area_ativa']
