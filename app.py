@@ -252,23 +252,20 @@ def main():
                 st.download_button(label="📸 Baixar Foto", data=img_data, file_name=f"Escala.png", mime="image/png")
 
         elif aba == "Histórico":
-            # SEGURANÇA REFORÇADA: Verifica se a área ativa existe e tem um ID
             area_ativa = st.session_state.get('area_ativa')
             
             if area_ativa and 'id' in area_ativa:
                 area = area_ativa
                 st.header(f"📜 Histórico: {area['nome_area']}")
                 
-                # Busca escalas apenas se a área estiver definida corretamente
                 try:
-                    escalas_salvas = supabase.table("escalas").select("*").eq("id_area", area['id']).order("data_geracao", descending=True).execute()
+                    # CORREÇÃO AQUI: 'desc' no lugar de 'descending'
+                    escalas_salvas = supabase.table("escalas").select("*").eq("id_area", area['id']).order("data_geracao", desc=True).execute()
                     
                     if escalas_salvas.data:
                         for esc in escalas_salvas.data:
                             with st.container(border=True):
                                 c1, c2, c3 = st.columns([3, 2, 1])
-                                
-                                # Tratamento seguro da data
                                 try:
                                     data_geracao = datetime.fromisoformat(esc['data_geracao'])
                                     data_formatada = data_geracao.strftime('%d/%m/%Y %H:%M')
@@ -284,7 +281,6 @@ def main():
                                     supabase.table("escalas").delete().eq("id", esc['id']).execute()
                                     st.rerun()
 
-                                # Exibir escala selecionada
                                 if st.session_state.get('view_escala') == esc['id']:
                                     try:
                                         df = pd.read_json(esc['dados_escala'])
@@ -358,6 +354,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
