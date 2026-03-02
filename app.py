@@ -15,8 +15,8 @@ MESES_TRADUCAO = {
 }
 
 # --- CONEXÃO SUPABASE ---
-URL = "https://vjqkmomxlqwhthxkkfmp.supabase.co"
-KEY = "sb_publishable_3LhpzB7wNPY7WpgKWP_BqA_5eJ5Xik-"
+URL = "https://qfvahrtockqxlvrhknkn.supabase.co"
+KEY = "sb_publishable_NYv_kYobauOtW0lT3fWp6A_irgKBVGN"
 supabase: Client = create_client(URL, KEY)
 
 # --- CONFIGURAÇÕES GLOBAIS ---
@@ -274,6 +274,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
