@@ -244,7 +244,8 @@ def main():
             vinc = supabase.table("vinculos").select("id_membro").eq("id_area", area['id']).execute()
             ids = [v['id_membro'] for v in vinc.data]
             if ids:
-                m_list = supabase.table("membros").select("id, nome").in_id("id", ids).order("nome").execute()
+                # CORREÇÃO AQUI: Alterado .in_id para .in_
+                m_list = supabase.table("membros").select("id, nome").in_("id", ids).order("nome").execute()
                 with st.form("afast"):
                     n_af = st.selectbox("Irmão(ã)", [m['nome'] for m in m_list.data])
                     d_ini = st.date_input("Início"); d_fim = st.date_input("Fim")
@@ -273,3 +274,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
