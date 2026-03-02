@@ -86,7 +86,7 @@ def membro_disponivel(id_membro, data_alvo, posicao_alvo=None):
         if r['tipo'] == 'posicao' and posicao_alvo == r['valor']: return False
     return True
 
-# --- MOTOR DE ESCALA ---
+# --- MOTOR DE ESCALA JUSTO ---
 def gerar_escala_logica(area, data_inicio, meses, dias_culto):
     vagas = int(area['vagas'])
     pos_list = [p.strip() for p in area['posicoes'].split(",")]
@@ -94,27 +94,55 @@ def gerar_escala_logica(area, data_inicio, meses, dias_culto):
     data_atual = data_inicio
     data_fim = data_inicio + timedelta(days=30 * meses)
 
+    # Buscar todos os membros da área uma vez só
+    vinc = supabase.table("vinculos").select("id_membro").eq("id_area", area['id']).execute()
+    ids = [v['id_membro'] for v in vinc.data]
+    
+    if not ids: return pd.DataFrame()
+    
+    # Buscar dados dos membros
+    membros_res = supabase.table("membros").select("*").in_("id", ids).execute()
+    membros_base = membros_res.data
+    
+    # Inicializar contagem de serviços se necessário
+    for m in membros_base:
+        if 'total_servicos' not in m: m['total_servicos'] = 0
+
     while data_atual <= data_fim:
         dia_s = data_atual.strftime('%A')
         if dia_s in dias_culto:
-            vinc = supabase.table("vinculos").select("id_membro").eq("id_area", area['id']).execute()
-            ids = [v['id_membro'] for v in vinc.data]
-            if ids:
-                membros = supabase.table("membros").select("*").in_("id", ids).order("ultimo_servico").order("id").execute()
-                linha = {"Data": data_atual.strftime('%d/%m/%Y'), "Dia": DIAS_TRADUCAO[dia_s], "_mes": data_atual.strftime('%B / %Y')}
-                membros_disponiveis = membros.data.copy()
-                preenchidos = 0
-                for i in range(vagas):
-                    nome_posicao = pos_list[i] if i < len(pos_list) else f"Vaga {i+1}"
-                    for p in membros_disponiveis:
-                        if membro_disponivel(p['id'], data_atual, nome_posicao):
-                            linha[nome_posicao] = p['nome']
-                            supabase.table("membros").update({"ultimo_servico": data_atual.strftime('%Y-%m-%d')}).eq("id", p['id']).execute()
-                            membros_disponiveis.remove(p)
-                            preenchidos += 1
-                            break
-                if preenchidos > 0: escala_data.append(linha)
+            linha = {"Data": data_atual.strftime('%d/%m/%Y'), "Dia": DIAS_TRADUCAO[dia_s], "_mes": data_atual.strftime('%B / %Y')}
+            
+            # Ordenar membros pelo total de serviços (quem trabalhou menos primeiro)
+            membros_base.sort(key=lambda x: x['total_servicos'])
+            
+            membros_da_rodada = membros_base.copy()
+            preenchidos = 0
+            
+            for i in range(vagas):
+                nome_posicao = pos_list[i] if i < len(pos_list) else f"Vaga {i+1}"
+                encontrou = False
+                
+                # Tenta achar alguém disponível para a posição
+                for p in membros_da_rodada:
+                    if membro_disponivel(p['id'], data_atual, nome_posicao):
+                        linha[nome_posicao] = p['nome']
+                        
+                        # Atualiza contagem no banco
+                        novo_total = p['total_servicos'] + 1
+                        supabase.table("membros").update({"total_servicos": novo_total, "ultimo_servico": data_atual.strftime('%Y-%m-%d')}).eq("id", p['id']).execute()
+                        
+                        # Atualiza na lista local para a próxima vaga do mesmo dia
+                        p['total_servicos'] = novo_total
+                        membros_da_rodada.remove(p)
+                        preenchidos += 1
+                        encontrou = True
+                        break
+            
+            if preenchidos > 0: escala_data.append(linha)
+            
         data_atual += timedelta(days=1)
+        
     return pd.DataFrame(escala_data)
     
 # --- INTERFACE ---
@@ -158,7 +186,7 @@ def main():
                 vinc = supabase.table("vinculos").select("id_membro").eq("id_area", area['id']).execute()
                 ids = [v['id_membro'] for v in vinc.data]
                 if ids:
-                    supabase.table("membros").update({"ultimo_servico": DATA_RESET_INTERNA}).in_("id", ids).execute()
+                    supabase.table("membros").update({"total_servicos": 0, "ultimo_servico": DATA_RESET_INTERNA}).in_("id", ids).execute()
                     st.success("Prioridades reiniciadas!")
                     st.rerun()
 
@@ -170,7 +198,7 @@ def main():
                 for m in membros.data:
                     with st.container(border=True):
                         c1, c2, c3 = st.columns([3, 1, 1])
-                        c1.write(f"👤 **{m['nome']}**")
+                        c1.write(f"👤 **{m['nome']}** (Total: {m.get('total_servicos', 0)})")
                         if c2.button("✏️", key=f"ed_{m['id']}"): st.session_state['edit_id'] = m['id']
                         if c3.button("🗑️", key=f"rm_{m['id']}"):
                             supabase.table("restricoes").delete().eq("id_membro", m['id']).execute()
@@ -206,14 +234,13 @@ def main():
             if st.button("🚀 Gerar e Salvar Escala", type="primary"):
                 df = gerar_escala_logica(area, inicio, meses, dias)
                 st.session_state['escala_final'] = df
-                # Salva no banco de dados
                 dados_json = df.to_json(orient='records')
                 supabase.table("escalas").insert({
                     "id_area": area['id'],
                     "nome_area": area['nome_area'],
                     "dados_escala": dados_json
                 }).execute()
-                st.success("Escala gerada e salva no histórico!")
+                st.success("Escala gerada e salva!")
             
             if 'escala_final' in st.session_state:
                 df = st.session_state['escala_final']
@@ -233,22 +260,16 @@ def main():
                         c1, c2, c3 = st.columns([3, 2, 1])
                         data_formatada = datetime.fromisoformat(esc['data_geracao']).strftime('%d/%m/%Y %H:%M')
                         c1.write(f"📅 Gerado em: **{data_formatada}**")
-                        
-                        if c2.button("Visualizar", key=f"view_{esc['id']}"):
-                            st.session_state['view_escala'] = esc['id']
-                        
+                        if c2.button("Visualizar", key=f"view_{esc['id']}"): st.session_state['view_escala'] = esc['id']
                         if c3.button("🗑️", key=f"del_{esc['id']}"):
                             supabase.table("escalas").delete().eq("id", esc['id']).execute()
                             st.rerun()
-
                         if st.session_state.get('view_escala') == esc['id']:
                             df = pd.read_json(esc['dados_escala'])
                             st.dataframe(df, use_container_width=True)
                             if st.button("Fechar", key=f"close_{esc['id']}"):
-                                del st.session_state['view_escala']
-                                st.rerun()
-            else:
-                st.info("Nenhuma escala salva ainda.")
+                                del st.session_state['view_escala']; st.rerun()
+            else: st.info("Nenhuma escala salva.")
 
         elif aba == "Cadastrar Pessoas" and st.session_state['area_ativa']:
             area = st.session_state['area_ativa']
@@ -261,7 +282,8 @@ def main():
                 sab = st.checkbox("Restrição: 3º Sábado")
                 if st.form_submit_button("Salvar"):
                     if nome.strip():
-                        m_r = supabase.table("membros").insert({"nome": nome, "ultimo_servico": DATA_RESET_INTERNA}).execute()
+                        # Cria membro com total_servicos = 0
+                        m_r = supabase.table("membros").insert({"nome": nome, "total_servicos": 0, "ultimo_servico": DATA_RESET_INTERNA}).execute()
                         mid = m_r.data[0]['id']
                         supabase.table("vinculos").insert({"id_membro": mid, "id_area": area['id']}).execute()
                         for d in indisp: supabase.table("restricoes").insert({"id_membro": mid, "tipo": "dia", "valor": d}).execute()
