@@ -351,5 +351,6 @@ def main():
                             supabase.table("areas").delete().eq("id", a['id']).execute(); st.rerun()
 
 if __name__ == "__main__":
-    main()
+main()
+
 
