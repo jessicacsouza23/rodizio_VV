@@ -86,7 +86,7 @@ def membro_disponivel(id_membro, data_alvo, posicao_alvo=None):
         if r['tipo'] == 'posicao' and posicao_alvo == r['valor']: return False
     return True
 
-# --- MOTOR DE ESCALA (FILA PERSISTENTE CORRIGIDA) ---
+# --- MOTOR DE ESCALA (CORRIGIDO: SEM REPETIÇÃO NO DIA E FILA JUSTA) ---
 def gerar_escala_logica(area, data_inicio, meses, dias_culto):
     vagas = int(area['vagas'])
     pos_list = [p.strip() for p in area['posicoes'].split(",")]
@@ -94,18 +94,17 @@ def gerar_escala_logica(area, data_inicio, meses, dias_culto):
     data_atual = data_inicio
     data_fim = data_inicio + timedelta(days=30 * meses)
 
-    # 1. Buscar todos os membros vinculados à área
+    # 1. Buscar membros da área
     vinc = supabase.table("vinculos").select("id_membro").eq("id_area", area['id']).execute()
     ids = [v['id_membro'] for v in vinc.data]
     
     if not ids: return pd.DataFrame()
     
-    # 2. Buscar membros e ordenar pelo total de serviços (quem trabalhou menos primeiro)
-    # E depois por último serviço para desempate
+    # 2. Criar a fila inicial baseada em quem trabalhou menos vezes
     membros_res = supabase.table("membros").select("*").in_("id", ids).order("total_servicos").order("ultimo_servico").execute()
     fila_membros = membros_res.data
     
-    # Inicializar contagem de serviços se necessário
+    # Garantir que total_servicos não é None
     for m in fila_membros:
         if m.get('total_servicos') is None: m['total_servicos'] = 0
 
@@ -115,34 +114,41 @@ def gerar_escala_logica(area, data_inicio, meses, dias_culto):
             linha = {"Data": data_atual.strftime('%d/%m/%Y'), "Dia": DIAS_TRADUCAO[dia_s], "_mes": data_atual.strftime('%B / %Y')}
             
             preenchidos = 0
+            # IMPORTANTE: Lista de quem já foi escalado NESTA DATA específica
+            ids_escalados_hoje = []
             
-            # Para cada vaga
             for i in range(vagas):
                 nome_posicao = pos_list[i] if i < len(pos_list) else f"Vaga {i+1}"
                 
-                # Procura na fila o próximo membro disponível
+                encontrou = False
+                # Percorre a fila para achar o próximo disponível que NÃO foi escalado hoje
                 for idx, membro in enumerate(fila_membros):
-                    if membro_disponivel(membro['id'], data_atual, nome_posicao):
-                        linha[nome_posicao] = membro['nome']
+                    # Verifica se: 1. Não foi escalado hoje | 2. Passa nas restrições da área/data
+                    if membro['id'] not in ids_escalados_hoje and membro_disponivel(membro['id'], data_atual, nome_posicao):
                         
-                        # Atualiza localmente
+                        linha[nome_posicao] = membro['nome']
+                        ids_escalados_hoje.append(membro['id'])
+                        
+                        # Atualiza dados do membro
                         membro['total_servicos'] += 1
                         membro['ultimo_servico'] = data_atual.strftime('%Y-%m-%d')
                         
-                        # Atualiza no banco
+                        # Atualiza base de dados
                         supabase.table("membros").update({
                             "total_servicos": membro['total_servicos'],
                             "ultimo_servico": membro['ultimo_servico']
                         }).eq("id", membro['id']).execute()
                         
-                        # MOVE O MEMBRO PARA O FINAL DA FILA (isso garante o rodízio total)
+                        # Move o membro para o fim da fila para garantir o rodízio
                         membro_escalado = fila_membros.pop(idx)
                         fila_membros.append(membro_escalado)
                         
                         preenchidos += 1
-                        break
+                        encontrou = True
+                        break # Sai do loop de membros e vai para a próxima vaga
             
-            if preenchidos > 0: escala_data.append(linha)
+            if preenchidos > 0:
+                escala_data.append(linha)
             
         data_atual += timedelta(days=1)
         
@@ -354,6 +360,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
