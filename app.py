@@ -7,7 +7,6 @@ from supabase import create_client, Client
 from PIL import Image, ImageDraw, ImageFont
 import io
 import json
-import calendar
 
 MESES_TRADUCAO = {
     'January': 'Janeiro', 'February': 'Fevereiro', 'March': 'Março',
@@ -29,29 +28,23 @@ DATA_RESET_INTERNA = "2000-01-01"
 def hash_senha(senha):
     return hashlib.sha256(str.encode(senha)).hexdigest()
 
-# --- FUNÇÃO DE GERAÇÃO DE IMAGEM (FONTE AUMENTADA) ---
 def gerar_imagem_escala(df):
     if df.empty: return None
     df = df.astype(str)
     meses_ref = df['_mes'].values
     df_v = df.drop(columns=['_mes'])
     colunas = df_v.columns.tolist()
-    
     larg_col = 280 
     larg_total = 60 + (len(colunas) * larg_col)
     alt_total = (len(df) * 60) + 500 
-    
     img = Image.new('RGB', (larg_total, alt_total), color=(255, 255, 255))
     draw = ImageDraw.Draw(img)
-    
     try:
-        # TENTATIVA DE CARREGAR FONTES DO SISTEMA (Linux/Streamlit Cloud)
         f_h = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 32)
         f_t = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 28)
         f_m = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 40)
     except:
         f_h = f_t = f_m = ImageFont.load_default()
-
     y, mes_at = 40, ""
     for i, row in df_v.iterrows():
         partes_mes = meses_ref[i].split(" / ")
@@ -59,30 +52,22 @@ def gerar_imagem_escala(df):
         ano = partes_mes[1].strip() if len(partes_mes) > 1 else ""
         mes_pt = MESES_TRADUCAO.get(mes_ingles, mes_ingles)
         texto_mes_completo = f"{mes_pt} / {ano}"
-
         if meses_ref[i] != mes_at:
-            mes_at = meses_ref[i]
-            y += 30
+            mes_at = meses_ref[i]; y += 30
             draw.rectangle([0, y, larg_total, y+60], fill=(230, 230, 230))
-            txt = f"MÊS DE {texto_mes_completo.upper()}"
-            w = draw.textlength(txt, font=f_m)
+            txt = f"MÊS DE {texto_mes_completo.upper()}"; w = draw.textlength(txt, font=f_m)
             draw.text(((larg_total-w)/2, y+10), txt, fill="black", font=f_m)
-            y += 80
-            draw.rectangle([0, y, larg_total, y+50], fill=(50, 50, 50))
+            y += 80; draw.rectangle([0, y, larg_total, y+50], fill=(50, 50, 50))
             for idx, col in enumerate(colunas):
                 txt_c = col.upper(); w_c = draw.textlength(txt_c, font=f_h)
                 draw.text(((idx*larg_col)+(larg_col-w_c)/2, y+8), txt_c, fill="white", font=f_h)
             y += 60
-            
         if i % 2 == 0: draw.rectangle([0, y-5, larg_total, y+45], fill=(245, 245, 245))
         for idx, col in enumerate(colunas):
             txt_v = row[col]; w_v = draw.textlength(txt_v, font=f_t)
             draw.text(((idx*larg_col)+(larg_col-w_v)/2, y), txt_v, fill="black", font=f_t)
         y += 55 
-        
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    return buf.getvalue()
+    buf = io.BytesIO(); img.save(buf, format="PNG"); return buf.getvalue()
 
 def membro_disponivel(id_membro, data_alvo, posicao_alvo=None):
     data_str = data_alvo.strftime('%Y-%m-%d')
@@ -95,55 +80,35 @@ def membro_disponivel(id_membro, data_alvo, posicao_alvo=None):
     return True
 
 def gerar_escala_logica(area, data_inicio, meses, dias_culto):
-    vagas = int(area['vagas'])
-    pos_list = [p.strip() for p in area['posicoes'].split(",")]
-    escala_data = []
-    data_atual = data_inicio
-    data_fim = data_inicio + timedelta(days=30 * meses)
-
+    vagas = int(area['vagas']); pos_list = [p.strip() for p in area['posicoes'].split(",")]
+    escala_data = []; data_atual = data_inicio; data_fim = data_inicio + timedelta(days=30 * meses)
     vinc = supabase.table("vinculos").select("id_membro").eq("id_area", area['id']).execute()
     ids = [v['id_membro'] for v in vinc.data]
     if not ids: return pd.DataFrame()
-    
     membros_res = supabase.table("membros").select("*").in_("id", ids).order("total_servicos").order("ultimo_servico").execute()
     fila_membros = membros_res.data
-    
     for m in fila_membros:
         if m.get('total_servicos') is None: m['total_servicos'] = 0
-
     while data_atual <= data_fim:
         dia_s = data_atual.strftime('%A')
         if dia_s in dias_culto:
             linha = {"Data": data_atual.strftime('%d/%m/%Y'), "Dia": DIAS_TRADUCAO[dia_s], "_mes": data_atual.strftime('%B / %Y')}
-            preenchidos = 0
-            ids_escalados_hoje = []
-            
+            preenchidos = 0; ids_escalados_hoje = []
             for i in range(vagas):
                 nome_posicao = pos_list[i] if i < len(pos_list) else f"Vaga {i+1}"
                 for idx, membro in enumerate(fila_membros):
                     if membro['id'] not in ids_escalados_hoje and membro_disponivel(membro['id'], data_atual, nome_posicao):
-                        linha[nome_posicao] = membro['nome']
-                        ids_escalados_hoje.append(membro['id'])
-                        membro['total_servicos'] += 1
-                        membro['ultimo_servico'] = data_atual.strftime('%Y-%m-%d')
-                        
-                        supabase.table("membros").update({
-                            "total_servicos": membro['total_servicos'],
-                            "ultimo_servico": membro['ultimo_servico']
-                        }).eq("id", membro['id']).execute()
-                        
-                        membro_escalado = fila_membros.pop(idx)
-                        fila_membros.append(membro_escalado)
-                        preenchidos += 1
-                        break
-            if preenchidos > 0:
-                escala_data.append(linha)
+                        linha[nome_posicao] = membro['nome']; ids_escalados_hoje.append(membro['id'])
+                        membro['total_servicos'] += 1; membro['ultimo_servico'] = data_atual.strftime('%Y-%m-%d')
+                        supabase.table("membros").update({"total_servicos": membro['total_servicos'], "ultimo_servico": membro['ultimo_servico']}).eq("id", membro['id']).execute()
+                        membro_escalado = fila_membros.pop(idx); fila_membros.append(membro_escalado)
+                        preenchidos += 1; break
+            if preenchidos > 0: escala_data.append(linha)
         data_atual += timedelta(days=1)
     return pd.DataFrame(escala_data)
 
 def main():
     st.set_page_config(page_title="CCB Escala", layout="wide")
-    
     if 'logged_in' not in st.session_state:
         st.title("⛪ Sistema de Escala CCB")
         t1, t2 = st.tabs(["Login", "Criar Conta"])
@@ -151,40 +116,24 @@ def main():
             u = st.text_input("Usuário"); p = st.text_input("Senha", type="password")
             if st.button("Entrar"):
                 res = supabase.table("usuarios").select("*").eq("login", u).eq("senha", hash_senha(p)).execute()
-                if res.data:
-                    st.session_state.update({'logged_in': True, 'user_id': res.data[0]['id'], 'user_name': u})
-                    st.rerun()
+                if res.data: st.session_state.update({'logged_in': True, 'user_id': res.data[0]['id'], 'user_name': u}); st.rerun()
                 else: st.error("Acesso Negado.")
         with t2:
             nu = st.text_input("Novo Usuário"); np = st.text_input("Nova Senha", type="password")
             if st.button("Cadastrar Administrador"):
-                supabase.table("usuarios").insert({"login": nu, "senha": hash_senha(np)}).execute()
-                st.success("Conta criada!")
+                supabase.table("usuarios").insert({"login": nu, "senha": hash_senha(np)}).execute(); st.success("Conta criada!")
     else:
         st.sidebar.title(f"👤 {st.session_state['user_name']}")
         areas_res = supabase.table("areas").select("*").eq("id_usuario", st.session_state['user_id']).execute()
-        
         if areas_res.data:
             sel_nome = st.sidebar.selectbox("Área Atual", [a['nome_area'] for a in areas_res.data])
             st.session_state['area_ativa'] = next(a for a in areas_res.data if a['nome_area'] == sel_nome)
-        else:
-            st.session_state['area_ativa'] = None
-
+        else: st.session_state['area_ativa'] = None
         aba = st.sidebar.radio("Navegação", ["Dashboard", "Gerar Rodízio", "Histórico", "Cadastrar Pessoas", "Afastamentos", "Cargos"])
         if st.sidebar.button("Sair"): st.session_state.clear(); st.rerun()
 
         if aba == "Dashboard" and st.session_state['area_ativa']:
-            area = st.session_state['area_ativa']
-            st.header(f"📊 Dashboard: {area['nome_area']}")
-            
-            if st.button("🔄 Reiniciar Fila de Prioridade", type="secondary"):
-                vinc = supabase.table("vinculos").select("id_membro").eq("id_area", area['id']).execute()
-                ids = [v['id_membro'] for v in vinc.data]
-                if ids:
-                    supabase.table("membros").update({"total_servicos": 0, "ultimo_servico": DATA_RESET_INTERNA}).in_("id", ids).execute()
-                    st.success("Prioridades reiniciadas!")
-                    st.rerun()
-
+            area = st.session_state['area_ativa']; st.header(f"📊 Dashboard: {area['nome_area']}")
             vinc = supabase.table("vinculos").select("id_membro").eq("id_area", area['id']).execute()
             ids = [v['id_membro'] for v in vinc.data]
             if ids:
@@ -195,88 +144,53 @@ def main():
                         c1.write(f"👤 **{m['nome']}** (Total: {m.get('total_servicos', 0)})")
                         if c2.button("✏️", key=f"ed_{m['id']}"): st.session_state['edit_id'] = m['id']
                         if c3.button("🗑️", key=f"rm_{m['id']}"):
-                            supabase.table("restricoes").delete().eq("id_membro", m['id']).execute()
-                            supabase.table("vinculos").delete().eq("id_membro", m['id']).execute()
-                            supabase.table("membros").delete().eq("id", m['id']).execute(); st.rerun()
+                            supabase.table("vinculos").delete().eq("id_membro", m['id']).eq("id_area", area['id']).execute(); st.rerun()
 
         elif aba == "Gerar Rodízio" and st.session_state['area_ativa']:
-            area = st.session_state['area_ativa']
-            st.header(f"📅 Escala Atual: {area['nome_area']}")
-            
+            area = st.session_state['area_ativa']; st.header(f"📅 Escala Atual: {area['nome_area']}")
             escala_check = supabase.table("escalas").select("*").eq("id_area", area['id']).order("data_geracao", desc=True).limit(1).execute()
-            
             if escala_check.data:
-                esc_salva = escala_check.data[0]
-                # CORREÇÃO AQUI: Usando io.StringIO para evitar FileNotFoundError
-                df_exibir = pd.read_json(io.StringIO(esc_salva['dados_escala']))
-                st.success(f"✅ Escala ativa carregada (Gerada em: {esc_salva['data_geracao'][:16]})")
-                st.dataframe(df_exibir.drop(columns=['_mes']), use_container_width=True)
-                
-                img_data = gerar_imagem_escala(df_exibir)
-                st.download_button(label="📸 Baixar Foto (Fonte Grande)", data=img_data, file_name=f"Escala_{area['nome_area']}.png", mime="image/png")
-                st.divider()
-            
+                esc_salva = escala_check.data[0]; df_exibir = pd.read_json(io.StringIO(esc_salva['dados_escala']))
+                st.success("✅ Escala ativa carregada"); st.dataframe(df_exibir.drop(columns=['_mes']), use_container_width=True)
+                img_data = gerar_imagem_escala(df_exibir); st.download_button(label="📸 Baixar Foto", data=img_data, file_name=f"Escala_{area['nome_area']}.png", mime="image/png")
             with st.expander("🚀 Gerar Nova Escala"):
-                c1, c2 = st.columns(2)
-                meses = c1.selectbox("Período (Meses)", [1, 2, 3, 4, 5, 6], key="mes_nova")
-                inicio = c2.date_input("Data Inicial", key="data_nova")
-                dias = st.multiselect("Cultos", DIAS_ORDEM, default=["Thursday", "Saturday", "Sunday"], format_func=lambda x: DIAS_TRADUCAO[x], key="dias_nova")
-                
-                if st.button("Gerar e Salvar Nova Escala", type="primary"):
+                c1, c2 = st.columns(2); meses = c1.selectbox("Período (Meses)", [1, 2, 3, 4, 5, 6]); inicio = c2.date_input("Data Inicial")
+                dias = st.multiselect("Cultos", DIAS_ORDEM, default=["Thursday", "Saturday", "Sunday"], format_func=lambda x: DIAS_TRADUCAO[x])
+                if st.button("Gerar e Salvar"):
                     df_nova = gerar_escala_logica(area, inicio, meses, dias)
                     if not df_nova.empty:
-                        dados_json = df_nova.to_json(orient='records')
-                        supabase.table("escalas").insert({
-                            "id_area": area['id'],
-                            "nome_area": area['nome_area'],
-                            "dados_escala": dados_json
-                        }).execute()
-                        st.success("Nova escala salva!")
-                        st.rerun()
-
-        elif aba == "Histórico":
-            area_ativa = st.session_state.get('area_ativa')
-            if area_ativa:
-                area = area_ativa
-                st.header(f"📜 Histórico: {area['nome_area']}")
-                escalas_salvas = supabase.table("escalas").select("*").eq("id_area", area['id']).order("data_geracao", desc=True).execute()
-                if escalas_salvas.data:
-                    for esc in escalas_salvas.data:
-                        with st.container(border=True):
-                            c1, c2, c3 = st.columns([3, 2, 1])
-                            c1.write(f"📅 Gerado em: **{esc['data_geracao'][:16]}**")
-                            if c2.button("Visualizar", key=f"view_{esc['id']}"): st.session_state['view_escala'] = esc['id']
-                            if c3.button("🗑️", key=f"del_{esc['id']}"):
-                                supabase.table("escalas").delete().eq("id", esc['id']).execute(); st.rerun()
-                            if st.session_state.get('view_escala') == esc['id']:
-                                # CORREÇÃO AQUI: Usando io.StringIO
-                                df_hist = pd.read_json(io.StringIO(esc['dados_escala']))
-                                st.dataframe(df_hist, use_container_width=True)
-                                if st.button("Fechar", key=f"close_{esc['id']}"):
-                                    del st.session_state['view_escala']; st.rerun()
+                        supabase.table("escalas").insert({"id_area": area['id'], "nome_area": area['nome_area'], "dados_escala": df_nova.to_json(orient='records')}).execute()
+                        st.success("Nova escala salva!"); st.rerun()
 
         elif aba == "Cadastrar Pessoas" and st.session_state['area_ativa']:
-            area = st.session_state['area_ativa']
-            posicoes_da_area = [p.strip() for p in area['posicoes'].split(",")]
+            area = st.session_state['area_ativa']; posicoes_da_area = [p.strip() for p in area['posicoes'].split(",")]
             st.header(f"👥 Cadastro: {area['nome_area']}")
             with st.form("cad_p", clear_on_submit=True):
                 nome = st.text_input("Nome")
                 indisp = st.multiselect("Dias Proibidos:", DIAS_ORDEM, format_func=lambda x: DIAS_TRADUCAO[x])
-                rest_pos = st.multiselect("Posições que NÃO pode fazer:", posicoes_da_area)
+                rest_pos = st.multiselect("Posições proibidas:", posicoes_da_area)
                 sab = st.checkbox("Restrição: 3º Sábado")
                 if st.form_submit_button("Salvar"):
                     if nome.strip():
-                        m_r = supabase.table("membros").insert({"nome": nome, "total_servicos": 0, "ultimo_servico": DATA_RESET_INTERNA}).execute()
-                        mid = m_r.data[0]['id']
-                        supabase.table("vinculos").insert({"id_membro": mid, "id_area": area['id']}).execute()
+                        # VERIFICA SE O MEMBRO JÁ EXISTE (Pode ser em outra área)
+                        existente = supabase.table("membros").select("id").eq("nome", nome).execute()
+                        if existente.data:
+                            mid = existente.data[0]['id']
+                            st.info(f"Membro '{nome}' já existe no sistema. Vinculando à área {area['nome_area']}...")
+                        else:
+                            m_r = supabase.table("membros").insert({"nome": nome, "total_servicos": 0, "ultimo_servico": DATA_RESET_INTERNA}).execute()
+                            mid = m_r.data[0]['id']
+                        
+                        # CRIA VÍNCULO E RESTRIÇÕES
+                        supabase.table("vinculos").upsert({"id_membro": mid, "id_area": area['id']}).execute()
                         for d in indisp: supabase.table("restricoes").insert({"id_membro": mid, "tipo": "dia", "valor": d}).execute()
                         for p_rest in rest_pos: supabase.table("restricoes").insert({"id_membro": mid, "tipo": "posicao", "valor": p_rest}).execute()
                         if sab: supabase.table("restricoes").insert({"id_membro": mid, "tipo": "regra", "valor": "3_sabado"}).execute()
-                        st.success(f"✅ {nome} cadastrado!")
+                        st.success(f"✅ {nome} cadastrado/vinculado!")
+                    else: st.warning("Digite o nome.")
 
         elif aba == "Afastamentos" and st.session_state['area_ativa']:
-            area = st.session_state['area_ativa']
-            st.header(f"✈️ Afastamentos: {area['nome_area']}")
+            area = st.session_state['area_ativa']; st.header(f"✈️ Afastamentos")
             vinc = supabase.table("vinculos").select("id_membro").eq("id_area", area['id']).execute()
             ids = [v['id_membro'] for v in vinc.data]
             if ids:
@@ -293,19 +207,9 @@ def main():
                         st.success("Registrado!")
 
         elif aba == "Cargos":
-            st.header("⚙️ Configurar Área/Cargo")
-            with st.form("nova_a"):
-                n = st.text_input("Nome da Área"); v = st.number_input("Qtd Posições", 1, 10, 2); c = st.text_input("Nomes das Posições (separados por vírgula)")
-                if st.form_submit_button("Criar"):
-                    supabase.table("areas").insert({"id_usuario": st.session_state['user_id'], "nome_area": n, "vagas": v, "posicoes": c}).execute()
-                    st.rerun()
-            if areas_res.data:
-                for a in areas_res.data:
-                    with st.container(border=True):
-                        col1, col2 = st.columns([4, 1])
-                        col1.write(f"📂 **{a['nome_area']}** ({a['vagas']} vagas) - {a['posicoes']}")
-                        if col2.button("🗑️", key=f"del_area_{a['id']}"):
-                            supabase.table("areas").delete().eq("id", a['id']).execute(); st.rerun()
+            st.header("⚙️ Áreas"); n = st.text_input("Nome"); v = st.number_input("Vagas", 1, 10, 2); c = st.text_input("Posições (Soprano, Contra...)")
+            if st.button("Criar Área"):
+                supabase.table("areas").insert({"id_usuario": st.session_state['user_id'], "nome_area": n, "vagas": v, "posicoes": c}).execute(); st.rerun()
 
 if __name__ == "__main__":
     main()
