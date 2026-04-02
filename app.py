@@ -28,24 +28,29 @@ supabase: Client = create_client(URL, KEY)
 def hash_senha(senha):
     return hashlib.sha256(str.encode(senha)).hexdigest()
 
-# --- FUNÇÃO DE GERAÇÃO DE IMAGEM ---
+# --- FUNÇÃO DE GERAÇÃO DE IMAGEM (FONTE AMPLIADA) ---
 def gerar_imagem_escala(df):
     if df.empty: return None
     df = df.astype(str)
     meses_ref = df['_mes'].values
     df_v = df.drop(columns=['_mes'])
     colunas = df_v.columns.tolist()
-    larg_col = 280 
+    
+    larg_col = 320 # Aumentado para acomodar fonte maior
     larg_total = 60 + (len(colunas) * larg_col)
-    alt_total = (len(df) * 60) + 500 
+    alt_total = (len(df) * 80) + 600 # Aumentado espaçamento entre linhas
+    
     img = Image.new('RGB', (larg_total, alt_total), color=(255, 255, 255))
     draw = ImageDraw.Draw(img)
+    
     try:
-        f_h = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 32)
-        f_t = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 28)
-        f_m = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 40)
+        # Fontes maiores para melhor visibilidade
+        f_h = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 40) # Cabeçalho colunas
+        f_t = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 35)      # Nomes
+        f_m = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 50) # Título Mês
     except:
         f_h = f_t = f_m = ImageFont.load_default()
+        
     y, mes_at = 40, ""
     for i, row in df_v.iterrows():
         partes_mes = meses_ref[i].split(" / ")
@@ -53,21 +58,24 @@ def gerar_imagem_escala(df):
         ano = partes_mes[1].strip() if len(partes_mes) > 1 else ""
         mes_pt = MESES_TRADUCAO.get(mes_ingles, mes_ingles)
         texto_mes_completo = f"{mes_pt} / {ano}"
+        
         if meses_ref[i] != mes_at:
-            mes_at = meses_ref[i]; y += 30
-            draw.rectangle([0, y, larg_total, y+60], fill=(230, 230, 230))
+            mes_at = meses_ref[i]; y += 40
+            draw.rectangle([0, y, larg_total, y+80], fill=(230, 230, 230))
             txt = f"MÊS DE {texto_mes_completo.upper()}"; w = draw.textlength(txt, font=f_m)
             draw.text(((larg_total-w)/2, y+10), txt, fill="black", font=f_m)
-            y += 80; draw.rectangle([0, y, larg_total, y+50], fill=(50, 50, 50))
+            y += 100; draw.rectangle([0, y, larg_total, y+60], fill=(50, 50, 50))
             for idx, col in enumerate(colunas):
                 txt_c = col.upper(); w_c = draw.textlength(txt_c, font=f_h)
                 draw.text(((idx*larg_col)+(larg_col-w_c)/2, y+8), txt_c, fill="white", font=f_h)
-            y += 60
-        if i % 2 == 0: draw.rectangle([0, y-5, larg_total, y+45], fill=(245, 245, 245))
+            y += 80
+            
+        if i % 2 == 0: draw.rectangle([0, y-5, larg_total, y+55], fill=(245, 245, 245))
         for idx, col in enumerate(colunas):
             txt_v = row[col]; w_v = draw.textlength(txt_v, font=f_t)
             draw.text(((idx*larg_col)+(larg_col-w_v)/2, y), txt_v, fill="black", font=f_t)
-        y += 55 
+        y += 70 
+        
     buf = io.BytesIO(); img.save(buf, format="PNG"); return buf.getvalue()
 
 def membro_disponivel(id_membro, data_alvo, posicao_alvo=None):
@@ -147,21 +155,31 @@ def main():
                             supabase.table("vinculos").delete().eq("id_membro", m['id']).eq("id_area", area['id']).execute(); st.rerun()
 
         elif aba == "Gerar Rodízio" and st.session_state['area_ativa']:
-            area = st.session_state['area_ativa']; st.header(f"📅 Escala Atual: {area['nome_area']}")
-            escala_check = supabase.table("escalas").select("*").eq("id_area", area['id']).order("data_geracao", desc=True).limit(1).execute()
-            if escala_check.data:
-                esc_salva = escala_check.data[0]; df_exibir = pd.read_json(io.StringIO(esc_salva['dados_escala']))
-                st.success(f"✅ Escala ativa carregada (Gerada em: {esc_salva['data_geracao'][:16]})")
-                st.dataframe(df_exibir.drop(columns=['_mes']), use_container_width=True)
-                img_data = gerar_imagem_escala(df_exibir); st.download_button(label="📸 Baixar Foto", data=img_data, file_name=f"Escala_{area['nome_area']}.png", mime="image/png")
-            with st.expander("🚀 Gerar Nova Escala"):
+            area = st.session_state['area_ativa']; st.header(f"📅 Escala: {area['nome_area']}")
+            
+            # Parte 1: Simulação
+            with st.expander("🚀 Passo 1: Simular Datas", expanded=True):
                 c1, c2 = st.columns(2); meses = c1.selectbox("Período (Meses)", [1, 2, 3, 4, 5, 6]); inicio = c2.date_input("Data Inicial")
                 dias = st.multiselect("Cultos", DIAS_ORDEM, default=["Thursday", "Saturday", "Sunday"], format_func=lambda x: DIAS_TRADUCAO[x])
-                if st.button("Gerar e Salvar"):
-                    df_nova = gerar_escala_logica(area, inicio, meses, dias)
-                    if not df_nova.empty:
-                        supabase.table("escalas").insert({"id_area": area['id'], "nome_area": area['nome_area'], "dados_escala": df_nova.to_json(orient='records')}).execute()
-                        st.success("Nova escala salva!"); st.rerun()
+                if st.button("Gerar Simulação"):
+                    st.session_state['preview_df'] = gerar_escala_logica(area, inicio, meses, dias)
+            
+            # Parte 2: Edição e Filtro (Onde remove os dias sem culto)
+            if 'preview_df' in st.session_state:
+                df_preview = st.session_state['preview_df']
+                st.divider()
+                st.subheader("🛠️ Passo 2: Ajustar e Salvar")
+                st.info("Selecione abaixo os dias que **NÃO** haverá culto (ex: feriados) para removê-los da escala.")
+                
+                datas_para_remover = st.multiselect("Datas para CANCELAR:", df_preview['Data'].tolist())
+                df_final = df_preview[~df_preview['Data'].isin(datas_para_remover)]
+                
+                st.dataframe(df_final.drop(columns=['_mes']), use_container_width=True)
+                
+                if st.button("✅ Confirmar e Salvar no Sistema"):
+                    if not df_final.empty:
+                        supabase.table("escalas").insert({"id_area": area['id'], "nome_area": area['nome_area'], "dados_escala": df_final.to_json(orient='records')}).execute()
+                        st.success("Nova escala salva com sucesso!"); del st.session_state['preview_df']; st.rerun()
 
         elif aba == "Histórico" and st.session_state['area_ativa']:
             area = st.session_state['area_ativa']
@@ -182,9 +200,7 @@ def main():
                                 df_h = pd.read_json(io.StringIO(esc['dados_escala']))
                                 st.dataframe(df_h.drop(columns=['_mes'], errors='ignore'), use_container_width=True)
                                 img_h = gerar_imagem_escala(df_h)
-                                st.download_button(label="📸 Baixar Foto deste Histórico", data=img_h, file_name=f"Escala_Hist_{esc['data_geracao'][:10]}.png", mime="image/png", key=f"dl_{esc['id']}")
-                                if st.button("Fechar", key=f"f_{esc['id']}"):
-                                    del st.session_state['view_escala']; st.rerun()
+                                st.download_button(label="📸 Baixar Foto Ampliada", data=img_h, file_name=f"Escala_{esc['data_geracao'][:10]}.png", mime="image/png", key=f"dl_{esc['id']}")
                             except Exception as e:
                                 st.error(f"Erro ao processar dados: {e}")
             else: st.info("Nenhuma escala salva no histórico.")
@@ -211,7 +227,6 @@ def main():
                         for p_rest in rest_pos: supabase.table("restricoes").insert({"id_membro": mid, "tipo": "posicao", "valor": p_rest}).execute()
                         if sab: supabase.table("restricoes").insert({"id_membro": mid, "tipo": "regra", "valor": "3_sabado"}).execute()
                         st.success(f"✅ {nome} salvo!")
-                    else: st.warning("Digite o nome.")
 
         elif aba == "Afastamentos" and st.session_state['area_ativa']:
             area = st.session_state['area_ativa']; st.header(f"✈️ Afastamentos")
