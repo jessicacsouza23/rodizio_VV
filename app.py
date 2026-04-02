@@ -37,15 +37,15 @@ def gerar_imagem_escala(df):
     df_v = df.drop(columns=['_mes'])
     colunas = df_v.columns.tolist()
     
-    larg_col = 280 # Aumentado
+    larg_col = 280 
     larg_total = 60 + (len(colunas) * larg_col)
-    alt_total = (len(df) * 60) + 500 # Espaçamento maior entre linhas
+    alt_total = (len(df) * 60) + 500 
     
     img = Image.new('RGB', (larg_total, alt_total), color=(255, 255, 255))
     draw = ImageDraw.Draw(img)
     
     try:
-        # FONTES MUITO MAIORES PARA MELHOR LEITURA
+        # TENTATIVA DE CARREGAR FONTES DO SISTEMA (Linux/Streamlit Cloud)
         f_h = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 32)
         f_t = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 28)
         f_m = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 40)
@@ -78,7 +78,7 @@ def gerar_imagem_escala(df):
         for idx, col in enumerate(colunas):
             txt_v = row[col]; w_v = draw.textlength(txt_v, font=f_t)
             draw.text(((idx*larg_col)+(larg_col-w_v)/2, y), txt_v, fill="black", font=f_t)
-        y += 55 # Altura da linha aumentada
+        y += 55 
         
     buf = io.BytesIO()
     img.save(buf, format="PNG")
@@ -120,7 +120,6 @@ def gerar_escala_logica(area, data_inicio, meses, dias_culto):
             
             for i in range(vagas):
                 nome_posicao = pos_list[i] if i < len(pos_list) else f"Vaga {i+1}"
-                encontrou = False
                 for idx, membro in enumerate(fila_membros):
                     if membro['id'] not in ids_escalados_hoje and membro_disponivel(membro['id'], data_atual, nome_posicao):
                         linha[nome_posicao] = membro['nome']
@@ -136,7 +135,6 @@ def gerar_escala_logica(area, data_inicio, meses, dias_culto):
                         membro_escalado = fila_membros.pop(idx)
                         fila_membros.append(membro_escalado)
                         preenchidos += 1
-                        encontrou = True
                         break
             if preenchidos > 0:
                 escala_data.append(linha)
@@ -191,7 +189,6 @@ def main():
             ids = [v['id_membro'] for v in vinc.data]
             if ids:
                 membros = supabase.table("membros").select("*").in_("id", ids).order("nome").execute()
-                posicoes_da_area = [p.strip() for p in area['posicoes'].split(",")]
                 for m in membros.data:
                     with st.container(border=True):
                         c1, c2, c3 = st.columns([3, 1, 1])
@@ -202,46 +199,24 @@ def main():
                             supabase.table("vinculos").delete().eq("id_membro", m['id']).execute()
                             supabase.table("membros").delete().eq("id", m['id']).execute(); st.rerun()
 
-                        if st.session_state.get('edit_id') == m['id']:
-                            with st.form(f"form_ed_{m['id']}"):
-                                rest_res = supabase.table("restricoes").select("*").eq("id_membro", m['id']).execute()
-                                dias_at = [r['valor'] for r in rest_res.data if r['tipo'] == 'dia']
-                                pos_at = [r['valor'] for r in rest_res.data if r['tipo'] == 'posicao']
-                                sab_at = any(r['valor'] == '3_sabado' for r in rest_res.data)
-                                nv_nome = st.text_input("Nome", m['nome'])
-                                nv_ind = st.multiselect("Dias Proibidos", DIAS_ORDEM, default=dias_at, format_func=lambda x: DIAS_TRADUCAO[x])
-                                nv_pos = st.multiselect("Posições que NÃO pode fazer", posicoes_da_area, default=pos_at)
-                                nv_sab = st.checkbox("Restrição 3º Sábado", value=sab_at)
-                                if st.form_submit_button("Salvar"):
-                                    supabase.table("membros").update({"nome": nv_nome}).eq("id", m['id']).execute()
-                                    supabase.table("restricoes").delete().eq("id_membro", m['id']).execute()
-                                    for d in nv_ind: supabase.table("restricoes").insert({"id_membro": m['id'], "tipo": "dia", "valor": d}).execute()
-                                    for p_rest in nv_pos: supabase.table("restricoes").insert({"id_membro": m['id'], "tipo": "posicao", "valor": p_rest}).execute()
-                                    if nv_sab: supabase.table("restricoes").insert({"id_membro": m['id'], "tipo": "regra", "valor": "3_sabado"}).execute()
-                                    del st.session_state['edit_id']; st.rerun()
-            else: st.info("Nenhum membro.")
-
         elif aba == "Gerar Rodízio" and st.session_state['area_ativa']:
             area = st.session_state['area_ativa']
             st.header(f"📅 Escala Atual: {area['nome_area']}")
             
-            # --- LÓGICA DE CARREGAMENTO AUTOMÁTICO ---
-            # Busca a última escala salva para esta área específica
             escala_check = supabase.table("escalas").select("*").eq("id_area", area['id']).order("data_geracao", desc=True).limit(1).execute()
             
             if escala_check.data:
                 esc_salva = escala_check.data[0]
-                df_exibir = pd.read_json(esc_salva['dados_escala'])
+                # CORREÇÃO AQUI: Usando io.StringIO para evitar FileNotFoundError
+                df_exibir = pd.read_json(io.StringIO(esc_salva['dados_escala']))
                 st.success(f"✅ Escala ativa carregada (Gerada em: {esc_salva['data_geracao'][:16]})")
                 st.dataframe(df_exibir.drop(columns=['_mes']), use_container_width=True)
                 
-                # Botão de download com a fonte grande
                 img_data = gerar_imagem_escala(df_exibir)
                 st.download_button(label="📸 Baixar Foto (Fonte Grande)", data=img_data, file_name=f"Escala_{area['nome_area']}.png", mime="image/png")
                 st.divider()
             
-            # --- ÁREA PARA GERAR NOVA ---
-            with st.expander("🚀 Gerar Nova Escala (Isso substituirá a visualização acima)"):
+            with st.expander("🚀 Gerar Nova Escala"):
                 c1, c2 = st.columns(2)
                 meses = c1.selectbox("Período (Meses)", [1, 2, 3, 4, 5, 6], key="mes_nova")
                 inicio = c2.date_input("Data Inicial", key="data_nova")
@@ -269,17 +244,16 @@ def main():
                     for esc in escalas_salvas.data:
                         with st.container(border=True):
                             c1, c2, c3 = st.columns([3, 2, 1])
-                            data_formatada = esc['data_geracao'][:16]
-                            c1.write(f"📅 Gerado em: **{data_formatada}**")
+                            c1.write(f"📅 Gerado em: **{esc['data_geracao'][:16]}**")
                             if c2.button("Visualizar", key=f"view_{esc['id']}"): st.session_state['view_escala'] = esc['id']
                             if c3.button("🗑️", key=f"del_{esc['id']}"):
                                 supabase.table("escalas").delete().eq("id", esc['id']).execute(); st.rerun()
                             if st.session_state.get('view_escala') == esc['id']:
-                                df = pd.read_json(esc['dados_escala'])
-                                st.dataframe(df, use_container_width=True)
+                                # CORREÇÃO AQUI: Usando io.StringIO
+                                df_hist = pd.read_json(io.StringIO(esc['dados_escala']))
+                                st.dataframe(df_hist, use_container_width=True)
                                 if st.button("Fechar", key=f"close_{esc['id']}"):
                                     del st.session_state['view_escala']; st.rerun()
-                else: st.info("Nenhum histórico.")
 
         elif aba == "Cadastrar Pessoas" and st.session_state['area_ativa']:
             area = st.session_state['area_ativa']
@@ -299,7 +273,6 @@ def main():
                         for p_rest in rest_pos: supabase.table("restricoes").insert({"id_membro": mid, "tipo": "posicao", "valor": p_rest}).execute()
                         if sab: supabase.table("restricoes").insert({"id_membro": mid, "tipo": "regra", "valor": "3_sabado"}).execute()
                         st.success(f"✅ {nome} cadastrado!")
-                    else: st.warning("Digite o nome.")
 
         elif aba == "Afastamentos" and st.session_state['area_ativa']:
             area = st.session_state['area_ativa']
