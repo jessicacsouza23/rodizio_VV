@@ -4,7 +4,7 @@ import pandas as pd
 import hashlib
 from datetime import datetime, timedelta
 from supabase import create_client, Client
- illusion from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont
 import io
 import json
 
@@ -29,7 +29,8 @@ def hash_senha(senha):
 def gerar_imagem_escala(df):
     if df.empty: return None
     df = df.astype(str)
-    meses_ref = df['_mes'].values
+    # Garante que a coluna _mes existe para não quebrar a imagem
+    meses_ref = df['_mes'].values if '_mes' in df.columns else ["Escala"] * len(df)
     df_v = df.drop(columns=['_mes'], errors='ignore')
     colunas = df_v.columns.tolist()
     larg_col = 280 
@@ -113,12 +114,12 @@ def main():
         if areas_res.data:
             sel = st.sidebar.selectbox("Área", [a['nome_area'] for a in areas_res.data])
             st.session_state['area_ativa'] = next(a for a in areas_res.data if a['nome_area'] == sel)
+        
         aba = st.sidebar.radio("Navegação", ["Gerar Rodízio", "Histórico", "Membros", "Cargos/Horários"])
         if st.sidebar.button("Sair"): st.session_state.clear(); st.rerun()
 
         if aba == "Gerar Rodízio" and st.session_state.get('area_ativa'):
             area = st.session_state['area_ativa']; st.header(f"📅 Escala: {area['nome_area']}")
-            
             with st.expander("🛠️ Configurar Nova Geração"):
                 c1, c2 = st.columns(2); m = c1.selectbox("Meses", [1,2,3,4,5,6]); d_ini = c2.date_input("Início")
                 dias = st.multiselect("Dias de Culto", DIAS_ORDEM, default=["Sunday"], format_func=lambda x: DIAS_TRADUCAO[x])
@@ -128,17 +129,13 @@ def main():
             if 'temp_df' in st.session_state:
                 df = st.session_state['temp_df']
                 st.subheader("Edição Pré-Salvamento")
-                st.info("💡 Remova as linhas dos dias que NÃO haverá culto nesta escala específica.")
-                
-                # Permite remover datas específicas antes de salvar
-                datas_para_remover = st.multiselect("Selecione datas para CANCELAR (Sem Culto):", df['Data'].tolist())
+                st.info("💡 Remova os dias que NÃO haverá culto (Feriados, etc).")
+                datas_para_remover = st.multiselect("Selecione datas para CANCELAR:", df['Data'].tolist())
                 df_final = df[~df['Data'].isin(datas_para_remover)]
-                
                 st.dataframe(df_final.drop(columns=['_mes'], errors='ignore'), use_container_width=True)
-                
                 if st.button("Confirmar e Salvar Escala"):
                     supabase.table("escalas").insert({"id_area": area['id'], "nome_area": area['nome_area'], "dados_escala": df_final.to_json(orient='records')}).execute()
-                    st.success("Escala salva com sucesso!"); del st.session_state['temp_df']; st.rerun()
+                    st.success("Escala salva!"); del st.session_state['temp_df']; st.rerun()
 
         elif aba == "Histórico" and st.session_state.get('area_ativa'):
             area = st.session_state['area_ativa']; st.header("📜 Histórico")
@@ -153,7 +150,7 @@ def main():
                         df_h = pd.read_json(io.StringIO(e['dados_escala']))
                         st.dataframe(df_h.drop(columns=['_mes'], errors='ignore'), use_container_width=True)
                         img = gerar_imagem_escala(df_h)
-                        st.download_button("📸 Baixar Imagem", img, f"Escala_{area['nome_area']}.png", "image/png", key=f"dl_{e['id']}")
+                        if img: st.download_button("📸 Baixar Imagem", img, f"Escala_{area['nome_area']}.png", "image/png", key=f"dl_{e['id']}")
 
         elif aba == "Membros" and st.session_state.get('area_ativa'):
             area = st.session_state['area_ativa']; st.header("👥 Gestão de Membros")
@@ -165,30 +162,28 @@ def main():
                     supabase.table("vinculos").upsert({"id_membro": mid, "id_area": area['id']}).execute()
                     for dia in d: supabase.table("restricoes").insert({"id_membro": mid, "tipo": "dia", "valor": dia}).execute()
                     st.success("Pronto!"); st.rerun()
-            
             v = supabase.table("vinculos").select("id_membro").eq("id_area", area['id']).execute()
             ids = [x['id_membro'] for x in v.data]
             if ids:
                 ms = supabase.table("membros").select("*").in_("id", ids).order("nome").execute()
                 for m in ms.data:
                     with st.container(border=True):
-                        col1, col2 = st.columns([4,1])
-                        col1.write(f"👤 {m['nome']} | Serviços: {m.get('total_servicos', 0)}")
-                        if col2.button("Remover desta Área", key=f"rm_{m['id']}"):
+                        c1, c2 = st.columns([4,1])
+                        c1.write(f"👤 {m['nome']} | Serviços: {m.get('total_servicos', 0)}")
+                        if c2.button("Remover", key=f"rm_{m['id']}"):
                             supabase.table("vinculos").delete().eq("id_membro", m['id']).eq("id_area", area['id']).execute(); st.rerun()
 
         elif aba == "Cargos/Horários":
             st.header("⚙️ Áreas e Horários")
-            st.info("Dica: Para horários diferentes no mesmo cargo, crie áreas separadas. Ex: 'Limpeza (Manhã)' e 'Limpeza (Noite)'.")
             with st.form("area"):
-                n = st.text_input("Nome da Área/Horário"); v = st.number_input("Vagas", 1, 10, 2); p = st.text_input("Posições (Vírgula)")
+                n = st.text_input("Nome (Ex: Som Manhã)"); v = st.number_input("Vagas", 1, 10, 2); p = st.text_input("Posições (Separadas por vírgula)")
                 if st.form_submit_button("Criar"):
                     supabase.table("areas").insert({"id_usuario": st.session_state['user_id'], "nome_area": n, "vagas": v, "posicoes": p}).execute(); st.rerun()
             for a in areas_res.data:
                 with st.container(border=True):
                     c1, c2 = st.columns([4,1])
-                    c1.write(f"📂 **{a['nome_area']}** | {a['vagas']} vagas | Posições: {a['posicoes']}")
-                    if c2.button("Excluir Área", key=f"del_{a['id']}"): supabase.table("areas").delete().eq("id", a['id']).execute(); st.rerun()
+                    c1.write(f"📂 **{a['nome_area']}** | {a['vagas']} vagas")
+                    if c2.button("Excluir", key=f"del_{a['id']}"): supabase.table("areas").delete().eq("id", a['id']).execute(); st.rerun()
 
 if __name__ == "__main__":
     main()
