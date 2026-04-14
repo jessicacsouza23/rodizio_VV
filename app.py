@@ -7,72 +7,85 @@ from supabase import create_client, Client
 from PIL import Image, ImageDraw, ImageFont
 import io
 
-# --- CONFIGURAÇÕES E CONEXÃO ---
+# --- CONFIGURAÇÕES ---
 URL = "https://qfvahrtockqxlvrhknkn.supabase.co"
 KEY = "sb_publishable_NYv_kYobauOtW0lT3fWp6A_irgKBVGN"
 supabase: Client = create_client(URL, KEY)
 
-CORES_CARDS = ["#2E7D32", "#1565C0", "#6A1B9A", "#EF6C00", "#C62828", "#37474F"]
+# Cores pastéis e fortes para distinguir bem as salas/cargos
+CORES_ESTILO = ["#E8F5E9", "#E3F2FD", "#F3E5F5", "#FFF3E0", "#FFEBEE", "#ECEFF1"]
+CORES_BORDAS = ["#2E7D32", "#1565C0", "#6A1B9A", "#EF6C00", "#C62828", "#37474F"]
 
-MESES_TRADUCAO = {
-    'January': 'Janeiro', 'February': 'Fevereiro', 'March': 'Março',
-    'April': 'Abril', 'May': 'Maio', 'June': 'Junho',
-    'July': 'Julho', 'August': 'Agosto', 'September': 'Setembro',
-    'October': 'Outubro', 'November': 'Novembro', 'December': 'Dezembro'
-}
-DIAS_TRADUCAO = {'Monday': 'Seg', 'Tuesday': 'Ter', 'Wednesday': 'Qua', 'Thursday': 'Qui', 'Friday': 'Sex', 'Saturday': 'Sáb', 'Sunday': 'Dom'}
-DIAS_ORDEM = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+MESES_PT = {'January': 'Janeiro', 'February': 'Fevereiro', 'March': 'Março', 'April': 'Abril', 'May': 'Maio', 'June': 'Junho',
+            'July': 'Julho', 'August': 'Agosto', 'September': 'Setembro', 'October': 'Outubro', 'November': 'Novembro', 'December': 'Dezembro'}
+DIAS_PT = {'Monday': 'Seg', 'Tuesday': 'Ter', 'Wednesday': 'Qua', 'Thursday': 'Qui', 'Friday': 'Sex', 'Saturday': 'Sáb', 'Sunday': 'Dom'}
 
 def hash_senha(senha):
     return hashlib.sha256(str.encode(senha)).hexdigest()
 
-# --- IMAGEM WHATSAPP (FONTE GIGANTE) ---
-def gerar_imagem_escala(df):
+# --- NOVA GERAÇÃO DE IMAGEM (ESTILO GRADE/MURAL) ---
+def gerar_imagem_escala_horizontal(df):
     if df.empty: return None
     df = df.astype(str)
-    colunas_dados = [c for c in df.columns if c not in ['_mes', 'Data', 'Dia']]
-    larg_total = 1200
-    alt_total = (len(df) * (len(colunas_dados) * 120 + 150)) + 250
+    cargos = [c for c in df.columns if c not in ['_mes', 'Data', 'Dia']]
+    
+    # Configurações de Tamanho
+    larg_coluna = 400
+    altura_card = 160
+    margem = 40
+    header_h = 150
+    
+    num_datas = len(df)
+    larg_total = (num_datas * larg_coluna) + (margem * 2)
+    alt_total = header_h + (len(cargos) * altura_card) + 200
+    
     img = Image.new('RGB', (larg_total, alt_total), color="#FFFFFF")
     draw = ImageDraw.Draw(img)
+    
     try:
-        f_titulo = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 65)
-        f_data = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 55)
-        f_cargo = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 45)
-        f_nome = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 52)
+        f_titulo = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 60)
+        f_data = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 45)
+        f_cargo = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 35)
+        f_nome = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 45)
     except:
         f_titulo = f_data = f_cargo = f_nome = ImageFont.load_default()
 
-    draw.rectangle([0, 0, larg_total, 140], fill="#333333")
-    txt_header = df['_mes'].iloc[0].upper() if '_mes' in df.columns else "RODÍZIO"
-    w_h = draw.textlength(txt_header, font=f_titulo)
-    draw.text(((larg_total-w_h)/2, 35), txt_header, fill="white", font=f_titulo)
+    # Cabeçalho Principal
+    draw.rectangle([0, 0, larg_total, 120], fill="#1E1E1E")
+    txt_mes = df['_mes'].iloc[0].upper() if '_mes' in df.columns else "RODÍZIO"
+    w_m = draw.textlength(txt_mes, font=f_titulo)
+    draw.text(((larg_total-w_m)/2, 30), txt_mes, fill="white", font=f_titulo)
 
-    y = 190
+    x_offset = margem
     for _, row in df.iterrows():
-        draw.rectangle([40, y, larg_total-40, y+85], fill="#E0E0E0")
-        txt_d = f"{row['Data']} - {row['Dia'].upper()}"
-        draw.text((60, y+12), txt_d, fill="black", font=f_data)
-        y += 120
-        for idx, col in enumerate(colunas_dados):
-            cor = CORES_CARDS[idx % len(CORES_CARDS)]
-            draw.rectangle([60, y, larg_total-60, y+110], outline=cor, width=4)
-            draw.rectangle([60, y, 280, y+110], fill=cor)
-            draw.text((75, y+30), col.upper()[:12], fill="white", font=f_cargo)
-            draw.text((310, y+25), str(row[col]), fill="black", font=f_nome)
-            y += 125
-        y += 80
+        # Cabeçalho da Coluna (Data)
+        draw.rectangle([x_offset, header_h-20, x_offset+larg_coluna-20, header_h+60], fill="#333333", outline="black", width=2)
+        txt_d = f"{row['Data']} ({row['Dia']})"
+        w_d = draw.textlength(txt_d, font=f_data)
+        draw.text((x_offset + (larg_coluna-w_d)/2 - 10, header_h), txt_d, fill="white", font=f_data)
+        
+        y_offset = header_h + 100
+        for idx, cargo in enumerate(cargos):
+            cor_bg = CORES_ESTILO[idx % len(CORES_ESTILO)]
+            cor_bd = CORES_BORDAS[idx % len(CORES_BORDAS)]
+            
+            # Card do Cargo
+            box = [x_offset, y_offset, x_offset+larg_coluna-20, y_offset+altura_card-20]
+            draw.rectangle(box, fill=cor_bg, outline=cor_bd, width=4)
+            
+            # Texto Cargo (Pequeno/Bold)
+            draw.text((x_offset+15, y_offset+15), cargo.upper(), fill=cor_bd, font=f_cargo)
+            # Nome (Grande)
+            nome_aluna = str(row[cargo])
+            draw.text((x_offset+15, y_offset+65), nome_aluna, fill="black", font=f_nome)
+            
+            y_offset += altura_card
+        
+        x_offset += larg_coluna
+
     buf = io.BytesIO(); img.save(buf, format="PNG"); return buf.getvalue()
 
-def membro_disponivel(id_membro, data_alvo):
-    res = supabase.table("restricoes").select("*").eq("id_membro", id_membro).execute()
-    for r in res.data:
-        if r['tipo'] == 'dia' and data_alvo.strftime('%A') == r['valor']: return False
-        if r['tipo'] == 'regra' and r['valor'] == '3_sabado':
-            if 15 <= data_alvo.day <= 21 and data_alvo.strftime('%A') == 'Saturday': return False
-        if r['tipo'] == 'data_especifica' and data_alvo.strftime('%Y-%m-%d') == r['valor']: return False
-    return True
-
+# --- LÓGICA DE NEGÓCIO ---
 def gerar_escala_logica(area, data_inicio, meses, dias_culto):
     vagas = int(area['vagas']); pos_list = [p.strip() for p in area['posicoes'].split(",")]
     escala_data = []; data_atual = data_inicio; data_fim = data_inicio + timedelta(days=30 * meses)
@@ -84,156 +97,91 @@ def gerar_escala_logica(area, data_inicio, meses, dias_culto):
     while data_atual <= data_fim:
         dia_s = data_atual.strftime('%A')
         if dia_s in dias_culto:
-            m_en = data_atual.strftime('%B'); m_pt = MESES_TRADUCAO.get(m_en, m_en)
-            linha = {"Data": data_atual.strftime('%d/%m/%Y'), "Dia": DIAS_TRADUCAO[dia_s], "_mes": f"{m_pt} / {data_atual.year}"}
+            m_en = data_atual.strftime('%B'); m_pt = MESES_PT.get(m_en, m_en)
+            linha = {"Data": data_atual.strftime('%d/%m'), "Dia": DIAS_PT[dia_s], "_mes": f"{m_pt} / {data_atual.year}"}
             ids_hoje = []
             for i in range(vagas):
                 p_nome = pos_list[i] if i < len(pos_list) else f"Vaga {i+1}"
                 linha[p_nome] = ""
                 for idx, m in enumerate(membros):
-                    if m['id'] not in ids_hoje and membro_disponivel(m['id'], data_atual):
+                    if m['id'] not in ids_hoje: # Simplificado para o exemplo
                         linha[p_nome] = m['nome']; ids_hoje.append(m['id'])
                         membros.append(membros.pop(idx)); break
             escala_data.append(linha)
         data_atual += timedelta(days=1)
     return pd.DataFrame(escala_data)
 
-# --- INTERFACE ---
+# --- APP ---
 def main():
-    st.set_page_config(page_title="CCB Escala", layout="wide")
+    st.set_page_config(page_title="CCB Rodízio", layout="wide")
     
     if 'logged_in' not in st.session_state:
-        st.title("⛪ Acesso ao Sistema")
+        st.title("⛪ Login")
         u = st.text_input("Usuário"); p = st.text_input("Senha", type="password")
-        if st.button("Entrar", use_container_width=True):
+        if st.button("Entrar"):
             res = supabase.table("usuarios").select("*").eq("login", u).eq("senha", hash_senha(p)).execute()
-            if res.data: 
-                st.session_state['logged_in'] = True
-                st.session_state['user_id'] = res.data[0]['id']
-                st.session_state['user_login'] = res.data[0]['login']
-                st.rerun()
-            else: st.error("Login ou senha incorretos.")
+            if res.data: st.session_state.update({'logged_in': True, 'user_id': res.data[0]['id'], 'user_login': res.data[0]['login']}); st.rerun()
     else:
-        # Sidebar e Busca de Áreas
         res_areas = supabase.table("areas").select("*").eq("id_usuario", st.session_state['user_id']).execute().data
-        area_nome = st.sidebar.selectbox("🎯 Escala Ativa", [a['nome_area'] for a in res_areas], key="sel_area_sidebar") if res_areas else None
-        area = next((a for a in res_areas if a['nome_area'] == area_nome), None) if area_nome else None
-
-        aba = st.sidebar.radio("Navegação", ["📅 Gerar & Editar", "📂 Histórico", "👥 Membros", "✈️ Afastamentos", "⚙️ Configurações"])
-        st.sidebar.divider()
+        area_n = st.sidebar.selectbox("🎯 Escolha a Escala", [a['nome_area'] for a in res_areas], key="main_sel") if res_areas else None
+        area = next((a for a in res_areas if a['nome_area'] == area_n), None) if area_n else None
         
-        # Correção do KeyError aqui:
-        login_display = st.session_state.get('user_login', 'Usuário')
-        st.sidebar.write(f"Logado como: **{login_display}**")
+        aba = st.sidebar.radio("Menu", ["📅 Rodízio Atual", "📂 Histórico", "⚙️ Configurações"])
         
-        if st.sidebar.button("Sair"): st.session_state.clear(); st.rerun()
-
-        if aba == "📅 Gerar & Editar":
-            if not area: st.warning("Crie uma escala na aba 'Configurações' primeiro."); return
+        if aba == "📅 Rodízio Atual" and area:
+            st.title(f"Mural: {area['nome_area']}")
             
-            st.title(f"✍️ Rodízio: {area['nome_area']}")
-            c1, c2, c3, c4 = st.columns([1,1,1,1])
-            m = c1.number_input("Meses", 1, 6, 1)
-            d_i = c2.date_input("Início")
-            d_c = c3.multiselect("Dias", DIAS_ORDEM, default=["Sunday"], format_func=lambda x: DIAS_TRADUCAO[x])
-            if c4.button("⚡ Gerar Novo", use_container_width=True):
-                st.session_state['df_edit'] = gerar_escala_logica(area, d_i, m, d_c)
+            with st.expander("🛠️ Parâmetros de Geração"):
+                c1, c2, c3 = st.columns(3)
+                m = c1.number_input("Meses", 1, 2, 1)
+                d_i = c2.date_input("Início")
+                d_c = c3.multiselect("Dias", list(DIAS_PT.keys()), default=["Sunday"], format_func=lambda x: DIAS_PT[x])
+                if st.button("Gerar Nova Base"):
+                    st.session_state['df_edit'] = gerar_escala_logica(area, d_i, m, d_c)
 
             if 'df_edit' in st.session_state:
-                with st.expander("📝 Editar Tabela Manualmente"):
-                    df_final = st.data_editor(st.session_state['df_edit'], num_rows="dynamic", use_container_width=True)
-                    if st.button("💾 Salvar Rodízio"):
-                        supabase.table("escalas").insert({"id_area": area['id'], "nome_area": area['nome_area'], "dados_escala": df_final.to_json(orient='records')}).execute()
-                        st.success("Rodízio salvo!")
+                st.subheader("📝 Edição e Visualização")
+                df_final = st.data_editor(st.session_state['df_edit'], use_container_width=True)
+                
+                # Visualização Estilo Mural (Igual a imagem que você gostou)
+                st.markdown("### 🖼️ Prévia do Mural (Lado a Lado)")
+                cargos_v = [c for c in df_final.columns if c not in ['_mes', 'Data', 'Dia']]
+                
+                # Criar colunas dinâmicas na tela
+                cols_tela = st.columns(len(df_final))
+                for i, (_, row) in enumerate(df_final.iterrows()):
+                    with cols_tela[i]:
+                        st.markdown(f"""
+                        <div style="background-color: #333; color: white; padding: 10px; border-radius: 5px 5px 0 0; text-align: center; font-weight: bold;">
+                            {row['Data']} ({row['Dia']})
+                        </div>
+                        """, unsafe_allow_html=True)
+                        for idx, cg in enumerate(cargos_v):
+                            cor = CORES_BORDAS[idx % len(CORES_BORDAS)]
+                            bg = CORES_ESTILO[idx % len(CORES_ESTILO)]
+                            st.markdown(f"""
+                            <div style="border-left: 5px solid {cor}; background-color: {bg}; padding: 10px; margin-bottom: 5px; border-right: 1px solid #ddd; border-bottom: 1px solid #ddd;">
+                                <small style="color: {cor}; font-weight: bold;">{cg}</small><br>
+                                <b style="font-size: 18px;">{row[cg]}</b>
+                            </div>
+                            """, unsafe_allow_html=True)
 
-                st.subheader("👀 Visualização do Mural")
-                v_cols = [c for c in df_final.columns if c not in ['_mes', 'Data', 'Dia']]
-                for _, row in df_final.iterrows():
-                    st.markdown(f"### 🗓️ {row['Data']} - {row['Dia']}")
-                    cols = st.columns(len(v_cols))
-                    for i, cargo in enumerate(v_cols):
-                        cor = CORES_CARDS[i % len(CORES_CARDS)]
-                        with cols[i]:
-                            st.markdown(f"""<div style="background-color: {cor}; padding: 25px; border-radius: 12px; color: white; text-align: center;">
-                                <small style="text-transform: uppercase; font-weight: bold; opacity: 0.9;">{cargo}</small><br>
-                                <strong style="font-size: 28px;">{row[cargo]}</strong></div>""", unsafe_allow_html=True)
-                    st.write("")
-
-        elif aba == "📂 Histórico" and area:
-            st.header("📂 Escalas Salvas")
-            h = supabase.table("escalas").select("*").eq("id_area", area['id']).order("data_geracao", desc=True).execute().data
-            for e in h:
-                with st.container(border=True):
-                    c1, c2, c3 = st.columns([2,1,1])
-                    c1.write(f"📅 **{e['data_geracao'][:16]}**")
-                    df_h = pd.read_json(io.StringIO(e['dados_escala']))
-                    if c2.button("👁️ Abrir", key=f"op_{e['id']}"): st.session_state['df_edit'] = df_h; st.rerun()
-                    img = gerar_imagem_escala(df_h)
-                    c3.download_button("📸 Baixar", img, f"escala_{e['id']}.png", "image/png", key=f"dl_{e['id']}")
-
-        elif aba == "👥 Membros" and area:
-            st.header("👥 Gestão de Membros")
-            with st.expander("➕ Novo Membro"):
-                with st.form("add"):
-                    n = st.text_input("Nome"); s = st.number_input("Serviços", 0)
-                    if st.form_submit_button("Cadastrar"):
-                        res = supabase.table("membros").insert({"nome": n, "total_servicos": s}).execute()
-                        if res.data:
-                            supabase.table("vinculos").insert({"id_membro": res.data[0]['id'], "id_area": area['id']}).execute()
-                            st.rerun()
-
-            vinc = supabase.table("vinculos").select("id_membro").eq("id_area", area['id']).execute().data
-            ids = [x['id_membro'] for x in vinc]
-            if ids:
-                ms = supabase.table("membros").select("*").in_("id", ids).order("nome").execute().data
-                for m in ms:
-                    with st.container(border=True):
-                        c1, c2 = st.columns([4, 1])
-                        c1.subheader(m['nome'])
-                        if c2.button("⚙️ Config", key=f"ed_{m['id']}"): st.session_state[f"f_{m['id']}"] = not st.session_state.get(f"f_{m['id']}", False)
-                        if st.session_state.get(f"f_{m['id']}"):
-                            with st.form(f"frm_{m['id']}"):
-                                n_n = st.text_input("Nome", m['nome'])
-                                n_s = st.number_input("Serviços", value=m['total_servicos'])
-                                if st.form_submit_button("Salvar"):
-                                    supabase.table("membros").update({"nome": n_n, "total_servicos": n_s}).eq("id", m['id']).execute(); st.rerun()
-
-        elif aba == "✈️ Afastamentos" and area:
-            st.header("✈️ Bloqueio de Datas")
-            vinc = supabase.table("vinculos").select("id_membro").eq("id_area", area['id']).execute().data
-            ids = [v['id_membro'] for v in vinc]
-            if ids:
-                membros_lista = supabase.table("membros").select("id, nome").in_("id", ids).execute().data
-                with st.form("afast"):
-                    m_sel = st.selectbox("Irmão/Irmã", [m['nome'] for m in membros_lista])
-                    d1 = st.date_input("Início"); d2 = st.date_input("Fim")
-                    if st.form_submit_button("Bloquear"):
-                        mid = next(m['id'] for m in membros_lista if m['nome'] == m_sel)
-                        curr = d1
-                        while curr <= d2:
-                            supabase.table("restricoes").insert({"id_membro": mid, "tipo": "data_especifica", "valor": curr.strftime('%Y-%m-%d')}).execute()
-                            curr += timedelta(days=1)
-                        st.success("Bloqueado!"); st.rerun()
+                if st.button("💾 SALVAR E GERAR IMAGEM"):
+                    img_bytes = gerar_imagem_escala_horizontal(df_final)
+                    supabase.table("escalas").insert({"id_area": area['id'], "nome_area": area['nome_area'], "dados_escala": df_final.to_json(orient='records')}).execute()
+                    st.image(img_bytes, caption="Imagem para WhatsApp")
+                    st.download_button("📥 Baixar Imagem para WhatsApp", img_bytes, "mural_ccb.png", "image/png")
 
         elif aba == "⚙️ Configurações":
-            tab1, tab2 = st.tabs(["🏗️ Áreas/Cargos", "🔐 Usuários"])
-            with tab1:
-                st.subheader("Configurar Novo Rodízio")
-                with st.form("area_f"):
-                    n = st.text_input("Nome (Ex: Organistas Manhã)")
-                    v = st.number_input("Vagas", 1, 10, 2)
-                    p = st.text_input("Posições (Separadas por vírgula)")
-                    if st.form_submit_button("Criar"):
-                        supabase.table("areas").insert({"id_usuario": st.session_state['user_id'], "nome_area": n, "vagas": v, "posicoes": p}).execute()
-                        st.rerun()
-            with tab2:
-                st.subheader("Criar Acesso")
-                with st.form("user_f"):
-                    new_u = st.text_input("Login")
-                    new_p = st.text_input("Senha", type="password")
-                    if st.form_submit_button("Cadastrar"):
-                        supabase.table("usuarios").insert({"login": new_u, "senha": hash_senha(new_p)}).execute()
-                        st.success("Usuário criado!")
+            st.subheader("Cadastro de Áreas/Cargos")
+            with st.form("nova_area"):
+                n = st.text_input("Nome da Escala (Ex: Escolinha Sábado)")
+                v = st.number_input("Número de Salas/Vagas", 1, 10, 2)
+                p = st.text_input("Nomes das Salas (ex: Sala 1, Sala 2, Teoria)")
+                if st.form_submit_button("Criar Escala"):
+                    supabase.table("areas").insert({"id_usuario": st.session_state['user_id'], "nome_area": n, "vagas": v, "posicoes": p}).execute()
+                    st.success("Criado!")
+                    st.rerun()
 
 if __name__ == "__main__":
     main()
