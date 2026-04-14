@@ -100,7 +100,7 @@ def gerar_escala_logica(area, data_inicio, meses, dias_culto):
 
 # --- INTERFACE ---
 def main():
-    st.set_page_config(page_title="Gestão de Escalas CCB", layout="wide")
+    st.set_page_config(page_title="CCB Escala", layout="wide")
     
     if 'logged_in' not in st.session_state:
         st.title("⛪ Acesso ao Sistema")
@@ -108,18 +108,24 @@ def main():
         if st.button("Entrar", use_container_width=True):
             res = supabase.table("usuarios").select("*").eq("login", u).eq("senha", hash_senha(p)).execute()
             if res.data: 
-                st.session_state.update({'logged_in': True, 'user_id': res.data[0]['id'], 'user_login': res.data[0]['login']})
+                st.session_state['logged_in'] = True
+                st.session_state['user_id'] = res.data[0]['id']
+                st.session_state['user_login'] = res.data[0]['login']
                 st.rerun()
             else: st.error("Login ou senha incorretos.")
     else:
-        # Resolvendo erro de Duplicate ID e buscando áreas
+        # Sidebar e Busca de Áreas
         res_areas = supabase.table("areas").select("*").eq("id_usuario", st.session_state['user_id']).execute().data
         area_nome = st.sidebar.selectbox("🎯 Escala Ativa", [a['nome_area'] for a in res_areas], key="sel_area_sidebar") if res_areas else None
         area = next((a for a in res_areas if a['nome_area'] == area_nome), None) if area_nome else None
 
         aba = st.sidebar.radio("Navegação", ["📅 Gerar & Editar", "📂 Histórico", "👥 Membros", "✈️ Afastamentos", "⚙️ Configurações"])
         st.sidebar.divider()
-        st.sidebar.write(f"Logado como: **{st.session_state['user_login']}**")
+        
+        # Correção do KeyError aqui:
+        login_display = st.session_state.get('user_login', 'Usuário')
+        st.sidebar.write(f"Logado como: **{login_display}**")
+        
         if st.sidebar.button("Sair"): st.session_state.clear(); st.rerun()
 
         if aba == "📅 Gerar & Editar":
@@ -141,15 +147,15 @@ def main():
                         st.success("Rodízio salvo!")
 
                 st.subheader("👀 Visualização do Mural")
-                vagas_cols = [c for c in df_final.columns if c not in ['_mes', 'Data', 'Dia']]
+                v_cols = [c for c in df_final.columns if c not in ['_mes', 'Data', 'Dia']]
                 for _, row in df_final.iterrows():
                     st.markdown(f"### 🗓️ {row['Data']} - {row['Dia']}")
-                    cols = st.columns(len(vagas_cols))
-                    for i, cargo in enumerate(vagas_cols):
+                    cols = st.columns(len(v_cols))
+                    for i, cargo in enumerate(v_cols):
                         cor = CORES_CARDS[i % len(CORES_CARDS)]
                         with cols[i]:
                             st.markdown(f"""<div style="background-color: {cor}; padding: 25px; border-radius: 12px; color: white; text-align: center;">
-                                <small style="text-transform: uppercase; font-weight: bold;">{cargo}</small><br>
+                                <small style="text-transform: uppercase; font-weight: bold; opacity: 0.9;">{cargo}</small><br>
                                 <strong style="font-size: 28px;">{row[cargo]}</strong></div>""", unsafe_allow_html=True)
                     st.write("")
 
@@ -172,7 +178,9 @@ def main():
                     n = st.text_input("Nome"); s = st.number_input("Serviços", 0)
                     if st.form_submit_button("Cadastrar"):
                         res = supabase.table("membros").insert({"nome": n, "total_servicos": s}).execute()
-                        supabase.table("vinculos").insert({"id_membro": res.data[0]['id'], "id_area": area['id']}).execute(); st.rerun()
+                        if res.data:
+                            supabase.table("vinculos").insert({"id_membro": res.data[0]['id'], "id_area": area['id']}).execute()
+                            st.rerun()
 
             vinc = supabase.table("vinculos").select("id_membro").eq("id_area", area['id']).execute().data
             ids = [x['id_membro'] for x in vinc]
@@ -182,7 +190,7 @@ def main():
                     with st.container(border=True):
                         c1, c2 = st.columns([4, 1])
                         c1.subheader(m['nome'])
-                        if c2.button("⚙️ Regras", key=f"ed_{m['id']}"): st.session_state[f"f_{m['id']}"] = not st.session_state.get(f"f_{m['id']}", False)
+                        if c2.button("⚙️ Config", key=f"ed_{m['id']}"): st.session_state[f"f_{m['id']}"] = not st.session_state.get(f"f_{m['id']}", False)
                         if st.session_state.get(f"f_{m['id']}"):
                             with st.form(f"frm_{m['id']}"):
                                 n_n = st.text_input("Nome", m['nome'])
@@ -190,25 +198,40 @@ def main():
                                 if st.form_submit_button("Salvar"):
                                     supabase.table("membros").update({"nome": n_n, "total_servicos": n_s}).eq("id", m['id']).execute(); st.rerun()
 
+        elif aba == "✈️ Afastamentos" and area:
+            st.header("✈️ Bloqueio de Datas")
+            vinc = supabase.table("vinculos").select("id_membro").eq("id_area", area['id']).execute().data
+            ids = [v['id_membro'] for v in vinc]
+            if ids:
+                membros_lista = supabase.table("membros").select("id, nome").in_("id", ids).execute().data
+                with st.form("afast"):
+                    m_sel = st.selectbox("Irmão/Irmã", [m['nome'] for m in membros_lista])
+                    d1 = st.date_input("Início"); d2 = st.date_input("Fim")
+                    if st.form_submit_button("Bloquear"):
+                        mid = next(m['id'] for m in membros_lista if m['nome'] == m_sel)
+                        curr = d1
+                        while curr <= d2:
+                            supabase.table("restricoes").insert({"id_membro": mid, "tipo": "data_especifica", "valor": curr.strftime('%Y-%m-%d')}).execute()
+                            curr += timedelta(days=1)
+                        st.success("Bloqueado!"); st.rerun()
+
         elif aba == "⚙️ Configurações":
-            tab1, tab2 = st.tabs(["🏗️ Áreas de Escala", "🔐 Cadastro de Usuários"])
-            
+            tab1, tab2 = st.tabs(["🏗️ Áreas/Cargos", "🔐 Usuários"])
             with tab1:
-                st.subheader("Criar Novo Cargo/Área")
+                st.subheader("Configurar Novo Rodízio")
                 with st.form("area_f"):
-                    n = st.text_input("Nome (Ex: Organistas Culto)")
+                    n = st.text_input("Nome (Ex: Organistas Manhã)")
                     v = st.number_input("Vagas", 1, 10, 2)
                     p = st.text_input("Posições (Separadas por vírgula)")
                     if st.form_submit_button("Criar"):
                         supabase.table("areas").insert({"id_usuario": st.session_state['user_id'], "nome_area": n, "vagas": v, "posicoes": p}).execute()
                         st.rerun()
-            
             with tab2:
-                st.subheader("Gerenciar Acessos ao Sistema")
+                st.subheader("Criar Acesso")
                 with st.form("user_f"):
-                    new_u = st.text_input("Novo Usuário (Login)")
+                    new_u = st.text_input("Login")
                     new_p = st.text_input("Senha", type="password")
-                    if st.form_submit_button("Cadastrar Usuário"):
+                    if st.form_submit_button("Cadastrar"):
                         supabase.table("usuarios").insert({"login": new_u, "senha": hash_senha(new_p)}).execute()
                         st.success("Usuário criado!")
 
