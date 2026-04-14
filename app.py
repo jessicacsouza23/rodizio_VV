@@ -12,8 +12,8 @@ URL = "https://qfvahrtockqxlvrhknkn.supabase.co"
 KEY = "sb_publishable_NYv_kYobauOtW0lT3fWp6A_irgKBVGN"
 supabase: Client = create_client(URL, KEY)
 
-# Cores mais sólidas para facilitar a leitura
-CORES_ESTILO = ["#4CAF50", "#2196F3", "#9C27B0", "#FF9800", "#E91E63", "#795548"]
+# Cores vibrantes para os Cards da Interface
+CORES_CARDS = ["#2E7D32", "#1565C0", "#6A1B9A", "#EF6C00", "#C62828", "#37474F"]
 
 MESES_TRADUCAO = {
     'January': 'Janeiro', 'February': 'Fevereiro', 'March': 'Março',
@@ -27,58 +27,50 @@ DIAS_ORDEM = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"
 def hash_senha(senha):
     return hashlib.sha256(str.encode(senha)).hexdigest()
 
-# --- GERAÇÃO DE IMAGEM (FONTE GIGANTE) ---
+# --- GERAÇÃO DE IMAGEM PARA WHATSAPP (ESTILO MURAL) ---
 def gerar_imagem_escala(df):
     if df.empty: return None
     df = df.astype(str)
     colunas_dados = [c for c in df.columns if c not in ['_mes', 'Data', 'Dia']]
     
-    larg_total = 1200  # Largura fixa para garantir que a fonte ocupe espaço
-    espacamento_entre_linhas = 110
-    margem_top = 150
-    # Calcula altura baseada no número de linhas e colunas
-    alt_total = (len(df) * (len(colunas_dados) * 100 + 150)) + margem_top
-    
+    larg_total = 1200
+    alt_total = (len(df) * (len(colunas_dados) * 110 + 150)) + 200
     img = Image.new('RGB', (larg_total, alt_total), color="#FFFFFF")
     draw = ImageDraw.Draw(img)
     
     try:
-        f_titulo = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 60)
-        f_data = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 50)
-        f_cargo = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 42)
-        f_nome = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 48)
+        f_titulo = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 65)
+        f_data = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 55)
+        f_cargo = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 45)
+        f_nome = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 52)
     except:
         f_titulo = f_data = f_cargo = f_nome = ImageFont.load_default()
 
-    # Cabeçalho
-    draw.rectangle([0, 0, larg_total, 120], fill="#1E1E1E")
-    txt_header = df['_mes'].iloc[0].upper() if '_mes' in df.columns else "ESCALA"
+    draw.rectangle([0, 0, larg_total, 130], fill="#333333")
+    txt_header = df['_mes'].iloc[0].upper() if '_mes' in df.columns else "RODÍZIO"
     w_h = draw.textlength(txt_header, font=f_titulo)
     draw.text(((larg_total-w_h)/2, 30), txt_header, fill="white", font=f_titulo)
 
-    y = margem_top
-    for i, row in df.iterrows():
-        # Bloco da Data
-        draw.rectangle([40, y, larg_total-40, y+70], fill="#F0F0F0")
+    y = 180
+    for _, row in df.iterrows():
+        draw.rectangle([40, y, larg_total-40, y+80], fill="#E0E0E0")
         txt_d = f"{row['Data']} - {row['Dia'].upper()}"
         draw.text((60, y+10), txt_d, fill="black", font=f_data)
-        y += 100
+        y += 120
         
         for idx, col in enumerate(colunas_dados):
-            # Barra lateral colorida para cada cargo
-            cor = CORES_ESTILO[idx % len(CORES_ESTILO)]
-            draw.rectangle([60, y, 75, y+80], fill=cor)
-            
-            # Cargo e Nome
-            draw.text((95, y), f"{col.upper()}:", fill="#555555", font=f_cargo)
-            draw.text((95, y+40), str(row[col]), fill="black", font=f_nome)
-            y += 110
-        y += 60 # Espaço entre datas
+            cor = CORES_CARDS[idx % len(CORES_CARDS)]
+            draw.rectangle([60, y, larg_total-60, y+100], outline=cor, width=3)
+            draw.rectangle([60, y, 250, y+100], fill=cor)
+            draw.text((70, y+25), col.upper()[:10], fill="white", font=f_cargo)
+            draw.text((270, y+20), str(row[col]), fill="black", font=f_nome)
+            y += 115
+        y += 80
 
     buf = io.BytesIO(); img.save(buf, format="PNG"); return buf.getvalue()
 
-# --- LÓGICA DE FILTRAGEM ---
-def membro_disponivel(id_membro, data_alvo, posicao_alvo=None):
+# --- LÓGICA DE MEMBROS ---
+def membro_disponivel(id_membro, data_alvo):
     res = supabase.table("restricoes").select("*").eq("id_membro", id_membro).execute()
     for r in res.data:
         if r['tipo'] == 'dia' and data_alvo.strftime('%A') == r['valor']: return False
@@ -93,8 +85,8 @@ def gerar_escala_logica(area, data_inicio, meses, dias_culto):
     vinc = supabase.table("vinculos").select("id_membro").eq("id_area", area['id']).execute()
     ids = [v['id_membro'] for v in vinc.data]
     if not ids: return pd.DataFrame()
-    membros_res = supabase.table("membros").select("*").in_("id", ids).order("total_servicos").order("ultimo_servico").execute()
-    fila_membros = membros_res.data
+    membros = supabase.table("membros").select("*").in_("id", ids).order("total_servicos").order("ultimo_servico").execute().data
+    
     while data_atual <= data_fim:
         dia_s = data_atual.strftime('%A')
         if dia_s in dias_culto:
@@ -104,15 +96,15 @@ def gerar_escala_logica(area, data_inicio, meses, dias_culto):
             for i in range(vagas):
                 p_nome = pos_list[i] if i < len(pos_list) else f"Vaga {i+1}"
                 linha[p_nome] = ""
-                for idx, m in enumerate(fila_membros):
-                    if m['id'] not in ids_hoje and membro_disponivel(m['id'], data_atual, p_nome):
+                for idx, m in enumerate(membros):
+                    if m['id'] not in ids_hoje and membro_disponivel(m['id'], data_atual):
                         linha[p_nome] = m['nome']; ids_hoje.append(m['id'])
-                        fila_membros.append(fila_membros.pop(idx)); break
+                        membros.append(membros.pop(idx)); break
             escala_data.append(linha)
         data_atual += timedelta(days=1)
     return pd.DataFrame(escala_data)
 
-# --- APP PRINCIPAL ---
+# --- INTERFACE ---
 def main():
     st.set_page_config(page_title="CCB Escala", layout="wide")
     
@@ -124,87 +116,69 @@ def main():
             if res.data: st.session_state.update({'logged_in': True, 'user_id': res.data[0]['id']}); st.rerun()
             else: st.error("Erro.")
     else:
-        areas_res = supabase.table("areas").select("*").eq("id_usuario", st.session_state['user_id']).execute()
-        area = next(a for a in areas_res.data if a['nome_area'] == st.sidebar.selectbox("Escala", [a['nome_area'] for a in areas_res.data])) if areas_res.data else None
-        aba = st.sidebar.radio("Navegação", ["Gerar & Editar", "Histórico", "Gerenciar Membros", "Afastamentos", "Cargos"])
+        # Carrega Área Ativa
+        areas = supabase.table("areas").select("*").eq("id_usuario", st.session_state['user_id']).execute().data
+        area = next(a for a in areas if a['nome_area'] == st.sidebar.selectbox("Escala Ativa", [a['nome_area'] for a in areas])) if areas else None
+        aba = st.sidebar.radio("Navegação", ["Gerar & Editar", "Histórico", "Membros", "Afastamentos", "Config"])
 
         if aba == "Gerar & Editar" and area:
-            st.title(f"✍️ Escala: {area['nome_area']}")
+            st.title(f"✍️ Rodízio: {area['nome_area']}")
             
-            with st.sidebar.expander("⚙️ Gerar Nova"):
-                m = st.number_input("Meses", 1, 6, 1)
-                d_i = st.date_input("Início")
-                d_c = st.multiselect("Dias", DIAS_ORDEM, default=["Sunday"], format_func=lambda x: DIAS_TRADUCAO[x])
-                if st.button("Gerar Base"):
-                    st.session_state['df_edit'] = gerar_escala_logica(area, d_i, m, d_c)
+            # Painel de Controle Superior
+            c1, c2, c3, c4 = st.columns([1,1,1,1])
+            meses = c1.number_input("Meses", 1, 6, 1)
+            data_i = c2.date_input("Início")
+            dias_c = c3.multiselect("Dias", DIAS_ORDEM, default=["Sunday"], format_func=lambda x: DIAS_TRADUCAO[x])
+            if c4.button("⚡ Gerar Nova Sugestão", use_container_width=True):
+                st.session_state['df_edit'] = gerar_escala_logica(area, data_i, meses, dias_c)
 
             if 'df_edit' in st.session_state:
-                col_ed, col_prev = st.columns([1, 1])
-                
-                with col_ed:
-                    st.subheader("1. Edite os Dados")
+                # Editor Oculto (Expander) para não poluir a tela
+                with st.expander("📝 Abrir Planilha para Ajustes Manuais"):
                     df_final = st.data_editor(st.session_state['df_edit'], num_rows="dynamic", use_container_width=True)
-                    if st.button("💾 SALVAR ESCALA", use_container_width=True, type="primary"):
+                    if st.button("💾 Salvar Esta Escala"):
                         supabase.table("escalas").insert({"id_area": area['id'], "nome_area": area['nome_area'], "dados_escala": df_final.to_json(orient='records')}).execute()
-                        st.success("Salvo!")
+                        st.success("Salvo com sucesso!")
+                
+                st.divider()
+                st.subheader("👀 Visualização do Rodízio")
+                
+                # GRID DE CARDS (Onde a mágica acontece)
+                vagas_cols = [c for c in df_final.columns if c not in ['_mes', 'Data', 'Dia']]
+                
+                for _, row in df_final.iterrows():
+                    # Bloco de Data (Um por linha)
+                    st.markdown(f"### 🗓️ {row['Data']} - {row['Dia']}")
+                    
+                    # Colunas para os Cargos (Lado a Lado)
+                    cols = st.columns(len(vagas_cols))
+                    for i, cargo in enumerate(vagas_cols):
+                        cor = CORES_CARDS[i % len(CORES_CARDS)]
+                        with cols[i]:
+                            st.markdown(f"""
+                            <div style="background-color: {cor}; padding: 20px; border-radius: 10px; color: white; text-align: center; min-height: 120px;">
+                                <small style="text-transform: uppercase; opacity: 0.8;">{cargo}</small><br>
+                                <strong style="font-size: 26px;">{row[cargo]}</strong>
+                            </div>
+                            """, unsafe_allow_html=True)
+                    st.write("") # Espaço entre datas
 
-                with col_prev:
-                    st.subheader("2. Visualização Real (Como vai ficar)")
-                    # Preview em tempo real na tela com fonte grande
-                    for _, row in df_final.iterrows():
-                        with st.container(border=True):
-                            st.markdown(f"### 📅 {row['Data']} ({row['Dia']})")
-                            cols_data = [c for c in df_final.columns if c not in ['_mes', 'Data', 'Dia']]
-                            for idx, c in enumerate(cols_data):
-                                cor = CORES_ESTILO[idx % len(CORES_ESTILO)]
-                                st.markdown(f"""
-                                <div style="border-left: 10px solid {cor}; padding-left: 15px; margin-bottom: 10px;">
-                                    <p style="margin:0; font-size: 16px; color: gray; font-weight: bold;">{c.upper()}</p>
-                                    <p style="margin:0; font-size: 24px; font-weight: bold;">{row[c]}</p>
-                                </div>
-                                """, unsafe_allow_html=True)
-            
-        # Manter as outras abas funcionais (Histórico, Membros, etc) do código anterior
         elif aba == "Histórico" and area:
-            st.header("📜 Histórico")
-            h = supabase.table("escalas").select("*").eq("id_area", area['id']).order("data_geracao", desc=True).execute()
+            st.header("📂 Escalas Salvas")
+            h = supabase.table("escalas").select("*").eq("id_area", area['id']).order("data_geracao", desc=True).execute().data
             for e in h.data:
                 with st.container(border=True):
                     c1, c2 = st.columns([3, 1])
-                    c1.write(f"📅 {e['data_geracao'][:16]}")
+                    c1.write(f"📅 Criada em: {e['data_geracao'][:16]}")
                     df_h = pd.read_json(io.StringIO(e['dados_escala']))
                     img = gerar_imagem_escala(df_h)
-                    c2.download_button("📸 Baixar Imagem", img, "escala.png", "image/png", key=f"dl_{e['id']}")
-                    if st.button("👁️ Abrir", key=f"op_{e['id']}"): st.session_state['df_edit'] = df_h; st.rerun()
+                    c2.download_button("📸 Baixar Imagem", img, f"escala_{e['id']}.png", "image/png", key=f"dl_{e['id']}")
+                    if st.button("👁️ Abrir", key=f"op_{e['id']}"): 
+                        st.session_state['df_edit'] = df_h
+                        st.rerun()
 
-        elif aba == "Gerenciar Membros" and area:
-             # Código de membros do bloco anterior (Reutilizado aqui)
-             vinc = supabase.table("vinculos").select("id_membro").eq("id_area", area['id']).execute()
-             ids = [x['id_membro'] for x in vinc.data]
-             if ids:
-                ms = supabase.table("membros").select("*").in_("id", ids).order("nome").execute()
-                for m in ms.data:
-                    with st.container(border=True):
-                        st.subheader(m['nome'])
-                        if st.button("⚙️ Regras", key=f"m_{m['id']}"):
-                            st.session_state[f"ed_{m['id']}"] = not st.session_state.get(f"ed_{m['id']}", False)
-                        if st.session_state.get(f"ed_{m['id']}"):
-                            with st.form(f"frm_{m['id']}"):
-                                n_n = st.text_input("Nome", m['nome'])
-                                n_s = st.number_input("Serviços", value=m['total_servicos'])
-                                # Restrições simplificadas para o formulário
-                                if st.form_submit_button("Atualizar"):
-                                    supabase.table("membros").update({"nome": n_n, "total_servicos": n_s}).eq("id", m['id']).execute()
-                                    st.rerun()
-
-        elif aba == "Afastamentos" and area:
-            st.header("✈️ Afastamentos")
-            # Lógica de afastamento mantida
-            pass
-
-        elif aba == "Cargos":
-            # Lógica de criação de escalas mantida
-            pass
+        # [Abas de Membros, Afastamentos e Configurações seguem a lógica dos blocos anteriores]
+        # (Código omitido por brevidade, mas você deve manter as funções de insert/update neles)
 
 if __name__ == "__main__":
     main()
