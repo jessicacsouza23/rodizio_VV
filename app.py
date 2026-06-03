@@ -104,7 +104,6 @@ def main():
     if 'logged_in' not in st.session_state:
         st.title("⛪ Gestão de Escalas")
         
-        # Criação de abas na tela de login para organizar os fluxos novos
         tab_login, tab_cadastro, tab_esqueci = st.tabs(["🔒 Acessar Sistema", "✨ Criar Novo Usuário", "🔑 Esqueci a Senha"])
         
         with tab_login:
@@ -120,7 +119,7 @@ def main():
                     
         with tab_cadastro:
             st.subheader("Cadastro de Administrador")
-            novo_u = st.text_input("Escolha um Nome de Usuário", key="cad_user")
+            novo_u = st.text_input("Escolha um Nome de Usuário", key="cad_user").strip()
             novo_p = st.text_input("Escolha uma Senha", type="password", key="cad_pass")
             conf_p = st.text_input("Confirme a Senha", type="password", key="cad_conf_pass")
             
@@ -130,17 +129,17 @@ def main():
                 elif novo_p != conf_p:
                     st.error("As senhas informadas não coincidem.")
                 else:
-                    # Verifica se o usuário já existe
-                    existe = supabase.table("usuarios").select("id").eq("login", novo_u).execute()
+                    # Validação crucial: Verifica se o nome de usuário já existe no banco (ignora maiúsculas/minúsculas)
+                    existe = supabase.table("usuarios").select("id").ilike("login", novo_u).execute()
                     if existe.data:
-                        st.error("Este nome de usuário já está sendo utilizado.")
+                        st.error(f"O nome de usuário '{novo_u}' já está cadastrado. Escolha outro nome.")
                     else:
                         supabase.table("usuarios").insert({"login": novo_u, "senha": hash_senha(novo_p)}).execute()
                         st.success("Usuário criado com sucesso! Agora você pode acessar na primeira aba.")
                         
         with tab_esqueci:
             st.subheader("Redefinição de Senha")
-            esq_u = st.text_input("Informe seu Nome de Usuário", key="esq_user")
+            esq_u = st.text_input("Informe seu Nome de Usuário", key="esq_user").strip()
             esq_p = st.text_input("Nova Senha", type="password", key="esq_pass")
             esq_conf = st.text_input("Confirme a Nova Senha", type="password", key="esq_conf_pass")
             
@@ -150,7 +149,6 @@ def main():
                 elif esq_p != esq_conf:
                     st.error("As senhas não coincidem.")
                 else:
-                    # Verifica se o usuário de fato existe para poder alterar
                     usuario_valido = supabase.table("usuarios").select("id").eq("login", esq_u).execute()
                     if not usuario_valido.data:
                         st.error("Usuário não cadastrado no sistema.")
