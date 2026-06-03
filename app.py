@@ -61,7 +61,7 @@ def gerar_imagem_escala(df):
         y += 95 
     buf = io.BytesIO(); img.save(buf, format="PNG"); return buf.getvalue()
 
-# --- LÓGICA DE FILTRAGEM ---
+# --- LÓGICA DE FILTRAGEM (ATUALIZADA COM POSIÇÃO) ---
 def membro_disponivel(id_membro, data_alvo, posicao_alvo=None):
     res = supabase.table("restricoes").select("*").eq("id_membro", id_membro).execute()
     for r in res.data:
@@ -69,6 +69,8 @@ def membro_disponivel(id_membro, data_alvo, posicao_alvo=None):
         if r['tipo'] == 'regra' and r['valor'] == '3_sabado':
             if 15 <= data_alvo.day <= 21 and data_alvo.strftime('%A') == 'Saturday': return False
         if r['tipo'] == 'data_especifica' and data_alvo.strftime('%Y-%m-%d') == r['valor']: return False
+        # Validação da posição/cargo restrito
+        if r['tipo'] == 'posicao' and posicao_alvo and str(r['valor']).strip().upper() == str(posicao_alvo).strip().upper(): return False
     return True
 
 def gerar_escala_logica(area, data_inicio, meses, dias_culto):
@@ -157,15 +159,28 @@ def main():
                     img_data = gerar_imagem_escala(df_h)
                     st.download_button("📸 Baixar Imagem (WhatsApp)", img_data, "escala.png", "image/png", key=f"h_i_{e['id']}")
 
-        # --- ABA: GERENCIAR MEMBROS ---
+        # --- ABA: GERENCIAR MEMBROS (ATUALIZADA) ---
         elif aba == "Gerenciar Membros" and area:
             st.header("👥 Configurações de Membros")
+            
+            # Posições disponíveis da área atual para usar nos selects
+            lista_posicoes = [p.strip() for p in area['posicoes'].split(",")] if area and area['posicoes'] else []
+            
             with st.expander("➕ Adicionar Novo"):
                 with st.form("add_m"):
-                    n = st.text_input("Nome"); s = st.number_input("Serviços", 0)
+                    n = st.text_input("Nome")
+                    s = st.number_input("Serviços", 0)
+                    p_bloqueadas = st.multiselect("Não pode trabalhar nestas posições/cargos:", lista_posicoes)
+                    
                     if st.form_submit_button("Salvar"):
                         res = supabase.table("membros").insert({"nome": n, "total_servicos": s}).execute()
-                        supabase.table("vinculos").insert({"id_membro": res.data[0]['id'], "id_area": area['id']}).execute(); st.rerun()
+                        novo_id = res.data[0]['id']
+                        supabase.table("vinculos").insert({"id_membro": novo_id, "id_area": area['id']}).execute()
+                        
+                        # Salva restrições de posição do novo membro
+                        for pos in p_bloqueadas:
+                            supabase.table("restricoes").insert({"id_membro": novo_id, "tipo": "posicao", "valor": pos}).execute()
+                        st.rerun()
 
             vinc = supabase.table("vinculos").select("id_membro").eq("id_area", area['id']).execute()
             ids = [x['id_membro'] for x in vinc.data]
@@ -182,18 +197,29 @@ def main():
                             with st.form(f"f_{m['id']}"):
                                 n_n = st.text_input("Nome", m['nome'])
                                 n_s = st.number_input("Serviços", value=m['total_servicos'])
-                                # Restrições
+                                
+                                # Carrega as restrições atuais do banco
                                 r_res = supabase.table("restricoes").select("*").eq("id_membro", m['id']).execute()
                                 d_atuais = [r['valor'] for r in r_res.data if r['tipo'] == 'dia']
                                 reg_atuais = [r['valor'] for r in r_res.data if r['tipo'] == 'regra']
+                                pos_atuais = [r['valor'] for r in r_res.data if r['tipo'] == 'posicao']
+                                
                                 d_fixos = st.multiselect("Não pode tocar nestes dias:", DIAS_ORDEM, default=d_atuais, format_func=lambda x: DIAS_TRADUCAO[x])
                                 sab3 = st.checkbox("Bloquear 3º Sábado?", value=('3_sabado' in reg_atuais))
+                                p_fixas = st.multiselect("Não pode trabalhar nestas posições/cargos:", lista_posicoes, default=pos_atuais)
                                 
                                 if st.form_submit_button("Atualizar"):
                                     supabase.table("membros").update({"nome": n_n, "total_servicos": n_s}).eq("id", m['id']).execute()
-                                    supabase.table("restricoes").delete().eq("id_membro", m['id']).in_("tipo", ["dia", "regra"]).execute()
-                                    for d in d_fixos: supabase.table("restricoes").insert({"id_membro": m['id'], "tipo": "dia", "valor": d}).execute()
-                                    if sab3: supabase.table("restricoes").insert({"id_membro": m['id'], "tipo": "regra", "valor": "3_sabado"}).execute()
+                                    # Limpa regras antigas (mantendo as de data específica se houver)
+                                    supabase.table("restricoes").delete().eq("id_membro", m['id']).in_("tipo", ["dia", "regra", "posicao"]).execute()
+                                    
+                                    # Reinsere as regras atualizadas
+                                    for d in d_fixos: 
+                                        supabase.table("restricoes").insert({"id_membro": m['id'], "tipo": "dia", "valor": d}).execute()
+                                    if sab3: 
+                                        supabase.table("restricoes").insert({"id_membro": m['id'], "tipo": "regra", "valor": "3_sabado"}).execute()
+                                    for pos in p_fixas: 
+                                        supabase.table("restricoes").insert({"id_membro": m['id'], "tipo": "posicao", "valor": pos}).execute()
                                     st.rerun()
 
         # --- ABA: AFASTAMENTOS ---
