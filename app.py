@@ -100,13 +100,28 @@ def gerar_escala_logica(area, data_inicio, meses, dias_culto):
 def main():
     st.set_page_config(page_title="CCB Escala", layout="wide")
     
-    # Inicializadores de estado para limpar campos
+    # Inicializadores de estado para limpar campos e disparar alertas pós-rerun
     if "form_reset" not in st.session_state:
         st.session_state.form_reset = 0
+    if "sucesso_cadastro" not in st.session_state:
+        st.session_state.sucesso_cadastro = False
+    if "sucesso_senha" not in st.session_state:
+        st.session_state.sucesso_senha = False
 
     if 'logged_in' not in st.session_state:
         st.title("⛪ Gestão de Escalas")
         
+        # Exibe as mensagens de sucesso que sobreviveram ao st.rerun()
+        if st.session_state.sucesso_cadastro:
+            st.balloons()
+            st.success("✨ Usuário criado com sucesso! Agora você pode acessar na primeira aba.")
+            st.session_state.sucesso_cadastro = False # Reseta para não disparar de novo sozinho
+            
+        if st.session_state.sucesso_senha:
+            st.balloons()
+            st.success("🔑 Sua senha foi redefinida com sucesso!")
+            st.session_state.sucesso_senha = False # Reseta para não disparar de novo sozinho
+            
         tab_login, tab_cadastro, tab_esqueci = st.tabs(["🔒 Acessar Sistema", "✨ Criar Novo Usuário", "🔑 Esqueci a Senha"])
         
         with tab_login:
@@ -122,7 +137,6 @@ def main():
                     
         with tab_cadastro:
             st.subheader("Cadastro de Administrador")
-            # Usamos o form_reset na key para forçar o Streamlit a limpar os campos ao mudar o valor
             novo_u = st.text_input("Escolha um Nome de Usuário", key=f"cad_u_{st.session_state.form_reset}").strip()
             novo_p = st.text_input("Escolha uma Senha", type="password", key=f"cad_p_{st.session_state.form_reset}")
             conf_p = st.text_input("Confirme a Senha", type="password", key=f"cad_cp_{st.session_state.form_reset}")
@@ -138,9 +152,8 @@ def main():
                         st.error(f"O nome de usuário '{novo_u}' já existe.")
                     else:
                         supabase.table("usuarios").insert({"login": novo_u, "senha": hash_senha(novo_p)}).execute()
-                        st.balloons()
-                        st.success("Usuário criado com sucesso!")
-                        # Incrementa o reset para limpar os widgets
+                        # Ativa as sinalizações antes de recarregar a tela
+                        st.session_state.sucesso_cadastro = True
                         st.session_state.form_reset += 1
                         st.rerun()
                         
@@ -161,8 +174,8 @@ def main():
                         st.error("Usuário não cadastrado.")
                     else:
                         supabase.table("usuarios").update({"senha": hash_senha(esq_p)}).eq("login", esq_u).execute()
-                        st.balloons()
-                        st.success("Senha redefinida com sucesso!")
+                        # Ativa as sinalizações antes de recarregar a tela
+                        st.session_state.sucesso_senha = True
                         st.session_state.form_reset += 1
                         st.rerun()
     else:
