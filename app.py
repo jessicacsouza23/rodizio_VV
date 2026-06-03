@@ -61,7 +61,7 @@ def gerar_imagem_escala(df):
         y += 95 
     buf = io.BytesIO(); img.save(buf, format="PNG"); return buf.getvalue()
 
-# --- LÓGICA DE FILTRAGEM (ATUALIZADA COM POSIÇÃO) ---
+# --- LÓGICA DE FILTRAGEM ---
 def membro_disponivel(id_membro, data_alvo, posicao_alvo=None):
     res = supabase.table("restricoes").select("*").eq("id_membro", id_membro).execute()
     for r in res.data:
@@ -69,7 +69,6 @@ def membro_disponivel(id_membro, data_alvo, posicao_alvo=None):
         if r['tipo'] == 'regra' and r['valor'] == '3_sabado':
             if 15 <= data_alvo.day <= 21 and data_alvo.strftime('%A') == 'Saturday': return False
         if r['tipo'] == 'data_especifica' and data_alvo.strftime('%Y-%m-%d') == r['valor']: return False
-        # Validação da posição/cargo restrito
         if r['tipo'] == 'posicao' and posicao_alvo and str(r['valor']).strip().upper() == str(posicao_alvo).strip().upper(): return False
     return True
 
@@ -104,11 +103,60 @@ def main():
     
     if 'logged_in' not in st.session_state:
         st.title("⛪ Gestão de Escalas")
-        u = st.text_input("Usuário"); p = st.text_input("Senha", type="password")
-        if st.button("Entrar"):
-            res = supabase.table("usuarios").select("*").eq("login", u).eq("senha", hash_senha(p)).execute()
-            if res.data: st.session_state.update({'logged_in': True, 'user_id': res.data[0]['id']}); st.rerun()
-            else: st.error("Erro de login.")
+        
+        # Criação de abas na tela de login para organizar os fluxos novos
+        tab_login, tab_cadastro, tab_esqueci = st.tabs(["🔒 Acessar Sistema", "✨ Criar Novo Usuário", "🔑 Esqueci a Senha"])
+        
+        with tab_login:
+            u = st.text_input("Usuário", key="login_user")
+            p = st.text_input("Senha", type="password", key="login_pass")
+            if st.button("Entrar", key="btn_login"):
+                res = supabase.table("usuarios").select("*").eq("login", u).eq("senha", hash_senha(p)).execute()
+                if res.data: 
+                    st.session_state.update({'logged_in': True, 'user_id': res.data[0]['id']})
+                    st.rerun()
+                else: 
+                    st.error("Usuário ou senha incorretos.")
+                    
+        with tab_cadastro:
+            st.subheader("Cadastro de Administrador")
+            novo_u = st.text_input("Escolha um Nome de Usuário", key="cad_user")
+            novo_p = st.text_input("Escolha uma Senha", type="password", key="cad_pass")
+            conf_p = st.text_input("Confirme a Senha", type="password", key="cad_conf_pass")
+            
+            if st.button("Gravar Novo Usuário", key="btn_cadastro"):
+                if not novo_u or not novo_p:
+                    st.warning("Preencha todos os campos obrigatórios.")
+                elif novo_p != conf_p:
+                    st.error("As senhas informadas não coincidem.")
+                else:
+                    # Verifica se o usuário já existe
+                    existe = supabase.table("usuarios").select("id").eq("login", novo_u).execute()
+                    if existe.data:
+                        st.error("Este nome de usuário já está sendo utilizado.")
+                    else:
+                        supabase.table("usuarios").insert({"login": novo_u, "senha": hash_senha(novo_p)}).execute()
+                        st.success("Usuário criado com sucesso! Agora você pode acessar na primeira aba.")
+                        
+        with tab_esqueci:
+            st.subheader("Redefinição de Senha")
+            esq_u = st.text_input("Informe seu Nome de Usuário", key="esq_user")
+            esq_p = st.text_input("Nova Senha", type="password", key="esq_pass")
+            esq_conf = st.text_input("Confirme a Nova Senha", type="password", key="esq_conf_pass")
+            
+            if st.button("Alterar Senha", key="btn_esqueci"):
+                if not esq_u or not esq_p:
+                    st.warning("Preencha todos os campos.")
+                elif esq_p != esq_conf:
+                    st.error("As senhas não coincidem.")
+                else:
+                    # Verifica se o usuário de fato existe para poder alterar
+                    usuario_valido = supabase.table("usuarios").select("id").eq("login", esq_u).execute()
+                    if not usuario_valido.data:
+                        st.error("Usuário não cadastrado no sistema.")
+                    else:
+                        supabase.table("usuarios").update({"senha": hash_senha(esq_p)}).eq("login", esq_u).execute()
+                        st.success("Sua senha foi redefinida com sucesso!")
     else:
         # Sidebar de Navegação
         areas_res = supabase.table("areas").select("*").eq("id_usuario", st.session_state['user_id']).execute()
@@ -159,11 +207,10 @@ def main():
                     img_data = gerar_imagem_escala(df_h)
                     st.download_button("📸 Baixar Imagem (WhatsApp)", img_data, "escala.png", "image/png", key=f"h_i_{e['id']}")
 
-        # --- ABA: GERENCIAR MEMBROS (ATUALIZADA) ---
+        # --- ABA: GERENCIAR MEMBROS ---
         elif aba == "Gerenciar Membros" and area:
             st.header("👥 Configurações de Membros")
             
-            # Posições disponíveis da área atual para usar nos selects
             lista_posicoes = [p.strip() for p in area['posicoes'].split(",")] if area and area['posicoes'] else []
             
             with st.expander("➕ Adicionar Novo"):
@@ -177,7 +224,6 @@ def main():
                         novo_id = res.data[0]['id']
                         supabase.table("vinculos").insert({"id_membro": novo_id, "id_area": area['id']}).execute()
                         
-                        # Salva restrições de posição do novo membro
                         for pos in p_bloqueadas:
                             supabase.table("restricoes").insert({"id_membro": novo_id, "tipo": "posicao", "valor": pos}).execute()
                         st.rerun()
@@ -198,7 +244,6 @@ def main():
                                 n_n = st.text_input("Nome", m['nome'])
                                 n_s = st.number_input("Serviços", value=m['total_servicos'])
                                 
-                                # Carrega as restrições atuais do banco
                                 r_res = supabase.table("restricoes").select("*").eq("id_membro", m['id']).execute()
                                 d_atuais = [r['valor'] for r in r_res.data if r['tipo'] == 'dia']
                                 reg_atuais = [r['valor'] for r in r_res.data if r['tipo'] == 'regra']
@@ -210,10 +255,8 @@ def main():
                                 
                                 if st.form_submit_button("Atualizar"):
                                     supabase.table("membros").update({"nome": n_n, "total_servicos": n_s}).eq("id", m['id']).execute()
-                                    # Limpa regras antigas (mantendo as de data específica se houver)
                                     supabase.table("restricoes").delete().eq("id_membro", m['id']).in_("tipo", ["dia", "regra", "posicao"]).execute()
                                     
-                                    # Reinsere as regras atualizadas
                                     for d in d_fixos: 
                                         supabase.table("restricoes").insert({"id_membro": m['id'], "tipo": "dia", "valor": d}).execute()
                                     if sab3: 
